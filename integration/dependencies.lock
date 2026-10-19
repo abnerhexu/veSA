@@ -1,0 +1,6 @@
+# Compatible source graph from Chipyard 1.11.0, commit ac58f38d77c99e9d1cafa64dfd6d4b00bdcd43e1.
+# name repository commit (no branches, no recursive submodules)
+rocket-chip https://github.com/chipsalliance/rocket-chip.git 749a3eae9678bc70b029c5b9091fae33fad539c4
+hardfloat https://github.com/ucb-bar/berkeley-hardfloat.git d93aa570806013dea479a92ba9bb33d1f2d4f69f
+cde https://github.com/chipsalliance/cde.git 384c06b8d45c8184ca2f3fba2f8e78f79d2c1b51
+firesim https://github.com/firesim/firesim.git 535dcdc29a930525e771f083f2b1c688884c6871

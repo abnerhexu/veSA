@@ -18,8 +18,8 @@ is recorded in the parent repository under `docs/progress/`.
 
 A and B currently use the same format, selected at elaboration time. FP32 is
 only an accumulator/output format. FP32, TF32 and FP64 operand paths do not
-exist. Hopper is not implemented yet. Gemmini command/memory integration is in
-progress, with full system verification still pending. FP4 uses the dedicated GST-FDPA path; it does
+exist. Hopper is not implemented yet. The first 2x2 internal-SRAM Gemmini
+RoCC/DMA path is verified; release consolidation is pending. FP4 uses the dedicated GST-FDPA path; it does
 not implement the separate ST-FDPA instruction family or per-tensor NVFP4 alpha.
 
 The new `TensorExecute` memory adapter loads raw A/B/C/scales and overwrites D
@@ -35,8 +35,11 @@ The default-off `tensorcore=Some(profile)` configuration now wires a fenced
 command frontend, engine and raw memory path into Controller. See
 [commands.md](commands.md) for its four-command ABI, drain/visibility rules,
 configuration helper, and `cmd-PROFILE`/`fence`/`isolation` regressions. Command
-composition tests use the production banks; full Rocket/Chipyard/DMA system
-elaboration and verification remain required before claiming P5 completion.
+composition tests use the production banks. The separate
+[real integration build](../../integration/README.md) compiles all Gemmini and
+locked upstream sources and has passed all nine profiles through real RoCC,
+MVIN and MVOUT, plus legacy OS/counter/reset checks. This does not claim CPU
+boot, VM, 4x4 or full single-port RoCC/DMA coverage; see the recorded scope.
 
 `TensorPE` accepts a request containing raw C bits and a block length in
 `1..fusionLength` for unscaled formats, or exactly 64 for FP4. It accepts that

@@ -2,8 +2,10 @@
 
 This is a private RV64 Gemmini ABI, not NVIDIA PTX/CUDA compatibility. The
 arithmetic profile is selected at elaboration, not by reinterpreting a command
-at run time. Full Rocket/Chipyard system elaboration remains a release gate;
-the command/queue/engine/production-bank composition is independently tested.
+at run time. The command/queue/engine/production-bank composition is tested
+independently. A separate [real integration target](../../integration/README.md)
+now compiles all Gemmini sources and connects its actual RoCC/DMA path to a
+TileLink RAM; see the progress record for the profiles actually run.
 
 ## Configuration
 
@@ -134,3 +136,8 @@ mill --no-server -j 1 integrationSyntax.compile
 The second command is parse-only. Neither command typechecks or elaborates the
 complete Rocket/Chipyard/HardFloat design. Actual results and remaining release
 gates are recorded in the parent `docs/progress/`.
+
+For real-source typechecking, top-level RTL and RoCC/MVIN/MVOUT validation,
+use `scripts/setup-tensorcore-integration.sh` followed by one
+`scripts/test-tensorcore-integration.sh` command at a time. This is distinct
+from both parser-only checking and the component tests described above.

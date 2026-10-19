@@ -7,6 +7,8 @@ now connect the raw C/D protocol to the shared production accumulator storage
 core. The original `Controller` now optionally connects a fenced command path;
 see [commands.md](commands.md). The adapter tests described here do not verify
 the full reservation-station/DMA system or complete P5/P6.
+Real-source builds and RoCC/DMA system tests are documented separately in
+[integration/README.md](../../integration/README.md).
 
 ## Storage protocol
 
