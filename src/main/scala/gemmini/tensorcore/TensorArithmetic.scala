@@ -6,7 +6,8 @@ import chisel3.util._
 /** Unnormalized value = (-1)^sign * magnitude * 2^(exponent-23). */
 class TensorTerm extends Bundle {
   val sign = Bool()
-  val magnitude = UInt(26.W)
+  // A scaled GST group is at most 2304 * 2^23, requiring 35 magnitude bits.
+  val magnitude = UInt(36.W)
   val exponent = SInt(12.W)
   val nan = Bool()
   val infinity = Bool()

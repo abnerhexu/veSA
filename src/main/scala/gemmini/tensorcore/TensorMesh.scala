@@ -13,6 +13,8 @@ class TensorMatrixOperands(config: BlackwellConfig, rows: Int, columns: Int) ext
   // One K slice: A[:, k] and B[k, :]. Skewing is internal to the mesh.
   val a = Vec(rows, UInt(config.format.width.W))
   val b = Vec(columns, UInt(config.format.width.W))
+  val alpha = if (config.grouped) Some(Vec(rows, UInt(8.W))) else None
+  val beta = if (config.grouped) Some(Vec(columns, UInt(8.W))) else None
 }
 
 class TensorMatrixResult(config: BlackwellConfig, rows: Int, columns: Int) extends Bundle {
@@ -73,23 +75,30 @@ class TensorMesh(val config: BlackwellConfig = BlackwellConfig(),
   private val a = Array.ofDim[(UInt, Bool)](rows, columns)
   private val b = Array.ofDim[(UInt, Bool)](rows, columns)
   for (r <- 0 until rows; c <- 0 until columns) {
-    a(r)(c) = if (c == 0) delayed(io.in.bits.a(r), io.in.fire, r)
+    val inputA = if (config.grouped) Cat(io.in.bits.alpha.get(r), io.in.bits.a(r)) else io.in.bits.a(r)
+    val inputB = if (config.grouped) Cat(io.in.bits.beta.get(c), io.in.bits.b(c)) else io.in.bits.b(c)
+    a(r)(c) = if (c == 0) delayed(inputA, io.in.fire, r)
       else delayed(a(r)(c - 1)._1, a(r)(c - 1)._2, 1)
-    b(r)(c) = if (r == 0) delayed(io.in.bits.b(c), io.in.fire, c)
+    b(r)(c) = if (r == 0) delayed(inputB, io.in.fire, c)
       else delayed(b(r - 1)(c)._1, b(r - 1)(c)._2, 1)
     val pe = pes(r)(c)
     pe.io.req.valid := state === launch && allReady
     pe.io.req.bits.c := accumulators(r)(c)
     pe.io.req.bits.length := blockLength
     pe.io.in.valid := advance && a(r)(c)._2 && b(r)(c)._2
-    pe.io.in.bits.a := a(r)(c)._1
-    pe.io.in.bits.b := b(r)(c)._1
+    pe.io.in.bits.a := a(r)(c)._1(config.format.width - 1, 0)
+    pe.io.in.bits.b := b(r)(c)._1(config.format.width - 1, 0)
+    if (config.grouped) {
+      pe.io.in.bits.alpha.get := a(r)(c)._1 >> config.format.width
+      pe.io.in.bits.beta.get := b(r)(c)._1 >> config.format.width
+    }
     pe.io.out.ready := state === waitResults && allValid
     when(pe.io.in.valid) { assert(pe.io.in.ready, "Systolic wave exceeded PE block length") }
   }
 
   when(io.req.fire) {
     assert(io.req.bits.k > 0.U)
+    if (config.grouped) { assert(io.req.bits.k(5, 0) === 0.U, "FP4 K must be a multiple of 64") }
     remaining := io.req.bits.k
     accumulators := io.req.bits.c
     tag := io.req.bits.tag
