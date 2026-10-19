@@ -12,6 +12,17 @@ Gemmini is part of the [Chipyard](https://github.com/ucb-bar/chipyard) ecosystem
 
 This document is intended to provide information for beginners wanting to try out Gemmini, as well as more advanced in-depth information for those who might want to start hacking on Gemmini's source code.
 
+## veSA Blackwell behavioral backend
+
+This fork adds an optional low-precision Tensor backend. For its nine supported
+arithmetic profiles, first-release 2x2 configuration, private RoCC ABI and
+CPU-only/RTL acceptance workflow, start with the
+[Blackwell release specification](integration/BLACKWELL_RELEASE.md).
+It does not add FP32/TF32/FP64 A/B inputs or NVIDIA instruction/timing
+compatibility. Run tests one at a time; no GPU is required.
+The upstream full-stack quick start below is separate from this small,
+locked-source behavioral validation workflow.
+
 ![Gemmini's high-level architecture](./img/gemmini-system.png)
 
 Quick Start

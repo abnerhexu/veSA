@@ -51,7 +51,9 @@ All nine profile names are accepted by the serial runner: `e4m3-f32`,
 Each test uses a 2x2 array, internal SRAM and a 64-bit TileLink beat; no FP32
 A/B MMA is added. FP16 C/D still occupies low halfwords in 32-bit raw slots.
 
-At present these are validation entry points, not an assertion that every
-listed run has passed. See the parent `docs/progress/2026-10-19-07-integration-build.md`
-for actual results, failures, pending profiles and release gates. A full CPU
-or Chipyard SoC boot is distinct from accelerator-level RoCC/TileLink validation.
+All nine profiles and enabled/default-off RTL generation passed P5; see the
+parent `docs/progress/2026-10-19-07-integration-build.md` for that evidence.
+The [Blackwell v1 release specification](BLACKWELL_RELEASE.md) fixes the exact
+supported scope, reference/fixture hashes and P6 serial verification commands.
+A full CPU or Chipyard SoC boot is distinct from accelerator-level RoCC/TileLink
+validation. No individual profile result implies all release gates have passed.
