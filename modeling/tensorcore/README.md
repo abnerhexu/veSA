@@ -18,9 +18,25 @@ is recorded in the parent repository under `docs/progress/`.
 
 A and B currently use the same format, selected at elaboration time. FP32 is
 only an accumulator/output format. FP32, TF32 and FP64 operand paths do not
-exist. Hopper and the existing Gemmini execution/memory controller integration
-are not implemented yet. FP4 hardware uses the dedicated GST-FDPA path; it does
+exist. Hopper is not implemented yet. Gemmini command/memory integration is in
+progress, with full system verification still pending. FP4 uses the dedicated GST-FDPA path; it does
 not implement the separate ST-FDPA instruction family or per-tensor NVFP4 alpha.
+
+The new `TensorExecute` memory adapter loads raw A/B/C/scales and overwrites D
+through banked row ports. See [local-memory.md](local-memory.md) for its protocol
+and tests using the original Gemmini SRAM bank. This first P5 integration
+layer does not by itself verify the full Controller/AccumulatorMem/DMA system.
+
+The C/D bridge now uses the real shared `AccumulatorMemCore` (also inherited
+by the original `AccumulatorMem` wrapper), with an accepted-request ownership
+router and full-width response contract checks. Tests are available as
+`scripts/test-tensorcore-memory.sh acc-PROFILE`, plus `contracts` and `router`.
+The default-off `tensorcore=Some(profile)` configuration now wires a fenced
+command frontend, engine and raw memory path into Controller. See
+[commands.md](commands.md) for its four-command ABI, drain/visibility rules,
+configuration helper, and `cmd-PROFILE`/`fence`/`isolation` regressions. Command
+composition tests use the production banks; full Rocket/Chipyard/DMA system
+elaboration and verification remain required before claiming P5 completion.
 
 `TensorPE` accepts a request containing raw C bits and a block length in
 `1..fusionLength` for unscaled formats, or exactly 64 for FP4. It accepts that
@@ -67,7 +83,7 @@ with the existing Scala compiler. Treadle simulation requires no GPU or Verilato
 
 Run commands from the Gemmini submodule (`veSA/`). Run only one test task at a
 time: `-j 1` limits Mill task concurrency, and the test JVM heap is capped at
-1536 MiB with two active processors.
+1536 MiB with one active processor (also limiting native simulator compilation).
 
 ```sh
 mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.BuildSmokeSpec

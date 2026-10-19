@@ -73,119 +73,6 @@ class ScratchpadWriteMemIO(local_addr_t: LocalAddr, acc_t_bits: Int, scale_t_bit
   val resp = Flipped(Valid(new ScratchpadMemWriteResponse))
 }
 
-class ScratchpadReadReq(val n: Int) extends Bundle {
-  val addr = UInt(log2Ceil(n).W)
-  val fromDMA = Bool()
-}
-
-class ScratchpadReadResp(val w: Int) extends Bundle {
-  val data = UInt(w.W)
-  val fromDMA = Bool()
-}
-
-class ScratchpadReadIO(val n: Int, val w: Int) extends Bundle {
-  val req = Decoupled(new ScratchpadReadReq(n))
-  val resp = Flipped(Decoupled(new ScratchpadReadResp(w)))
-}
-
-class ScratchpadWriteIO(val n: Int, val w: Int, val mask_len: Int) extends Bundle {
-  val valid = Output(Bool())
-  val ready = Input(Bool())
-  val addr = Output(UInt(log2Ceil(n).W))
-  val mask = Output(Vec(mask_len, Bool()))
-  val data = Output(UInt(w.W))
-  def fire = valid && ready
-}
-
-class ScratchpadBank(n: Int, w: Int, aligned_to: Int, single_ported: Boolean, use_shared_ext_mem: Boolean, is_dummy: Boolean) extends Module {
-  // This is essentially a pipelined SRAM with the ability to stall pipeline stages
-
-  require(w % aligned_to == 0 || w < aligned_to)
-  val mask_len = (w / (aligned_to * 8)) max 1 // How many mask bits are there?
-  val mask_elem = UInt((w min (aligned_to * 8)).W) // What datatype does each mask bit correspond to?
-
-  val io = IO(new Bundle {
-    val read = Flipped(new ScratchpadReadIO(n, w))
-    val write = Flipped(new ScratchpadWriteIO(n, w, mask_len))
-    val ext_mem = if (use_shared_ext_mem) Some(new ExtMemIO) else None
-  })
-
-  val ren = io.read.req.fire
-  val fromDMA = io.read.req.bits.fromDMA
-
-  // Make a queue which buffers the result of an SRAM read if it can't immediately be consumed
-  val q = Module(new Queue(new ScratchpadReadResp(w), 1, true, true))
-  val q_will_be_empty = (q.io.count +& q.io.enq.fire) - q.io.deq.fire === 0.U
-  // When the scratchpad is single-ported, the writes take precedence
-  val singleport_busy_with_write = single_ported.B && io.write.fire
-
-  if (is_dummy) {
-    q.io.enq.valid := RegNext(ren)
-    q.io.enq.bits.data := 0.U
-    q.io.enq.bits.fromDMA := RegNext(fromDMA)
-    io.read.req.ready := q_will_be_empty && !singleport_busy_with_write
-  } else if (use_shared_ext_mem) { // use ready-valid interface
-    val ext_mem = io.ext_mem.get
-
-    /* READ */
-    ext_mem.read_req.valid := q_will_be_empty && io.read.req.valid
-    ext_mem.read_req.bits := io.read.req.bits.addr
-    io.read.req.ready := q_will_be_empty && ext_mem.read_req.ready
-
-    // TODO (richard): the number of entries here should be configurable
-    val dma_q = Module(new Queue(Bool(), 4, false, true))
-    dma_q.io.enq.valid := ren
-    dma_q.io.enq.bits := fromDMA
-    dma_q.io.deq.ready := q.io.enq.fire
-    assert(dma_q.io.enq.fire === ren, "DMA queue does not have enough entries") // TODO (richard): do backpressure
-    assert(dma_q.io.deq.fire === q.io.enq.fire, "fromDMA should be dequeued only when read resp comes back")
-
-    q.io.enq.valid := ext_mem.read_resp.valid
-    q.io.enq.bits.data := ext_mem.read_resp.bits
-    q.io.enq.bits.fromDMA := dma_q.io.deq.bits
-    ext_mem.read_resp.ready := q.io.enq.ready
-
-    /* WRITE */
-    val wq = Module(new Queue(ext_mem.write_req.bits.cloneType, 4, pipe=true, flow=true))
-    ext_mem.write_req <> wq.io.deq
-
-    wq.io.enq.valid := io.write.valid
-    io.write.ready := wq.io.enq.ready
-    wq.io.enq.bits.addr := io.write.addr
-    wq.io.enq.bits.data := io.write.data
-    if (aligned_to >= w) {
-      wq.io.enq.bits.mask := VecInit((~(0.U(mask_len.W))).asBools).asUInt
-    } else {
-      wq.io.enq.bits.mask := io.write.mask.asUInt
-    }
-    // assert(wq.io.enq.ready || (!io.write.en), "TODO (richard): fix this if triggered")
-  } else { // use valid only interface
-    val mem = SyncReadMem(n, Vec(mask_len, mask_elem))
-
-    val raddr = io.read.req.bits.addr
-    val rdata = if (single_ported) {
-      assert(!(ren && io.write.fire))
-      mem.read(raddr, ren && !io.write.fire).asUInt
-    } else {
-      mem.read(raddr, ren).asUInt
-    }
-    q.io.enq.valid := RegNext(ren)
-    q.io.enq.bits.data := rdata
-    q.io.enq.bits.fromDMA := RegNext(fromDMA)
-
-    io.read.req.ready := q_will_be_empty && !singleport_busy_with_write
-
-    io.write.ready := true.B
-    when(io.write.fire) {
-      if (aligned_to >= w)
-        mem.write(io.write.addr, io.write.data.asTypeOf(Vec(mask_len, mask_elem)), VecInit((~(0.U(mask_len.W))).asBools))
-      else
-        mem.write(io.write.addr, io.write.data.asTypeOf(Vec(mask_len, mask_elem)), io.write.mask)
-    }
-  }
-
-  io.read.resp <> q.io.deq
-}
 
 
 class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, U, V])
@@ -244,13 +131,19 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
           acc_bank_entries, accType, acc_scale_t.asInstanceOf[V]
         ))))
         val read_resp = Vec(acc_banks, Decoupled(new AccumulatorScaleResp(
-          Vec(meshColumns, Vec(tileColumns, inputType)),
-          Vec(meshColumns, Vec(tileColumns, accType))
+          fullDataType = Vec(meshColumns, Vec(tileColumns, accType)),
+          rDataType = Vec(meshColumns, Vec(tileColumns, inputType))
         )))
         val write = Flipped(Vec(acc_banks, Decoupled(new AccumulatorWriteReq(
           acc_bank_entries, Vec(meshColumns, Vec(tileColumns, accType))
         ))))
       }
+
+      // Optional pre-normalizer/scaler access for the Tensor execution bridge.
+      // The enclosing controller must fence legacy/DMA tasks before using it.
+      val tensorcore_acc = if (tensorcore_memory_access) Some(Flipped(Vec(acc_banks,
+        new AccumulatorBankClientIO(acc_bank_entries,
+          Vec(meshColumns, Vec(tileColumns, accType)), acc_scale_t.asInstanceOf[V])))) else None
 
       val ext_mem = if (use_shared_ext_mem) {
         Some(new ExtSpadMemIO(sp_banks, acc_banks, acc_sub_banks))
@@ -263,9 +156,25 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
 
       // Misc. ports
       val busy = Output(Bool())
+      val tensorcore_drained = Output(Bool())
       val flush = Input(Bool())
       val counter = new CounterEventIO()
     })
+
+    // Track final local responses, not reader.busy alone: scaling, zero-fill
+    // and pixel-repeat can still write after the stream reader has gone idle.
+    val tensorcore_idle_checks = scala.collection.mutable.ArrayBuffer.empty[Bool]
+    if (tensorcore_memory_access) {
+      def track(start: Bool, finish: Bool): Unit = {
+        val activity = Module(new MemoryActivity())
+        activity.io.start := start
+        activity.io.finish := finish
+        tensorcore_idle_checks += activity.io.idle
+      }
+      track(io.dma.read.req.fire, io.dma.read.resp.valid)
+      io.srams.read.foreach(p => track(p.req.fire, p.resp.fire))
+      (io.acc.read_req zip io.acc.read_resp).foreach { case (req, resp) => track(req.fire, resp.fire) }
+    }
 
     val write_dispatch_q = Queue(io.dma.write.req)
     // Write norm/scale queues are necessary to maintain in-order requests to accumulator norm/scale units
@@ -501,6 +410,7 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
         use_shared_ext_mem, is_dummy
       )) }
       val bank_ios = VecInit(banks.map(_.io))
+
       // Reading from the SRAM banks
       bank_ios.zipWithIndex.foreach { case (bio, i) =>
         if (use_shared_ext_mem) {
@@ -693,11 +603,25 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
       )) }
       val bank_ios = VecInit(banks.map(_.io))
 
+      val bank_access = bank_ios.zipWithIndex.map { case (bio, i) =>
+        if (tensorcore_memory_access) {
+          val router = Module(new AccumulatorBankRouter(acc_bank_entries,
+            acc_row_t, acc_scale_t.asInstanceOf[V]))
+          bio.read <> router.io.bank.read
+          bio.write <> router.io.bank.write
+          router.io.raw <> io.tensorcore_acc.get(i)
+          (router.io.legacy.read, router.io.legacy.write)
+        } else {
+          (bio.read, bio.write)
+        }
+      }
+
       // Getting the output of the bank that's about to be issued to the writer
       val bank_issued_io = bank_ios(write_issue_q.io.deq.bits.laddr.acc_bank())
 
       // Reading from the Accumulator banks
       bank_ios.zipWithIndex.foreach { case (bio, i) =>
+        val readPort = bank_access(i)._1
         if (use_shared_ext_mem) {
           io.ext_mem.get.acc(i) <> bio.ext_mem.get
         }
@@ -715,45 +639,45 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
           !write_dispatch_q.bits.laddr.is_garbage() &&
           write_dispatch_q.bits.laddr.is_acc_addr && write_dispatch_q.bits.laddr.acc_bank() === i.U
 
-        bio.read.req.valid := exread || dmawrite
-        ex_read_req.ready := bio.read.req.ready
+        readPort.req.valid := exread || dmawrite
+        ex_read_req.ready := readPort.req.ready
 
         // The ExecuteController gets priority when reading from accumulator banks
         when (exread) {
-          bio.read.req.bits.addr := ex_read_req.bits.addr
-          bio.read.req.bits.act := ex_read_req.bits.act
-          bio.read.req.bits.igelu_qb := ex_read_req.bits.igelu_qb
-          bio.read.req.bits.igelu_qc := ex_read_req.bits.igelu_qc
-          bio.read.req.bits.iexp_qln2 := ex_read_req.bits.iexp_qln2
-          bio.read.req.bits.iexp_qln2_inv := ex_read_req.bits.iexp_qln2_inv
-          bio.read.req.bits.scale := ex_read_req.bits.scale
-          bio.read.req.bits.full := false.B
-          bio.read.req.bits.fromDMA := false.B
+          readPort.req.bits.addr := ex_read_req.bits.addr
+          readPort.req.bits.act := ex_read_req.bits.act
+          readPort.req.bits.igelu_qb := ex_read_req.bits.igelu_qb
+          readPort.req.bits.igelu_qc := ex_read_req.bits.igelu_qc
+          readPort.req.bits.iexp_qln2 := ex_read_req.bits.iexp_qln2
+          readPort.req.bits.iexp_qln2_inv := ex_read_req.bits.iexp_qln2_inv
+          readPort.req.bits.scale := ex_read_req.bits.scale
+          readPort.req.bits.full := false.B
+          readPort.req.bits.fromDMA := false.B
         }.elsewhen (dmawrite) {
-          bio.read.req.bits.addr := write_dispatch_q.bits.laddr.acc_row()
-          bio.read.req.bits.full := write_dispatch_q.bits.laddr.read_full_acc_row
-          bio.read.req.bits.act := write_dispatch_q.bits.acc_act
-          bio.read.req.bits.igelu_qb := write_dispatch_q.bits.acc_igelu_qb.asTypeOf(bio.read.req.bits.igelu_qb)
-          bio.read.req.bits.igelu_qc := write_dispatch_q.bits.acc_igelu_qc.asTypeOf(bio.read.req.bits.igelu_qc)
-          bio.read.req.bits.iexp_qln2 := write_dispatch_q.bits.acc_iexp_qln2.asTypeOf(bio.read.req.bits.iexp_qln2)
-          bio.read.req.bits.iexp_qln2_inv := write_dispatch_q.bits.acc_iexp_qln2_inv.asTypeOf(bio.read.req.bits.iexp_qln2_inv)
-          bio.read.req.bits.scale := write_dispatch_q.bits.acc_scale.asTypeOf(bio.read.req.bits.scale)
-          bio.read.req.bits.fromDMA := true.B
+          readPort.req.bits.addr := write_dispatch_q.bits.laddr.acc_row()
+          readPort.req.bits.full := write_dispatch_q.bits.laddr.read_full_acc_row
+          readPort.req.bits.act := write_dispatch_q.bits.acc_act
+          readPort.req.bits.igelu_qb := write_dispatch_q.bits.acc_igelu_qb.asTypeOf(readPort.req.bits.igelu_qb)
+          readPort.req.bits.igelu_qc := write_dispatch_q.bits.acc_igelu_qc.asTypeOf(readPort.req.bits.igelu_qc)
+          readPort.req.bits.iexp_qln2 := write_dispatch_q.bits.acc_iexp_qln2.asTypeOf(readPort.req.bits.iexp_qln2)
+          readPort.req.bits.iexp_qln2_inv := write_dispatch_q.bits.acc_iexp_qln2_inv.asTypeOf(readPort.req.bits.iexp_qln2_inv)
+          readPort.req.bits.scale := write_dispatch_q.bits.acc_scale.asTypeOf(readPort.req.bits.scale)
+          readPort.req.bits.fromDMA := true.B
 
-          when (bio.read.req.fire) {
+          when (readPort.req.fire) {
             write_dispatch_q.ready := true.B
             write_norm_q.io.enq.valid := true.B
 
             io.dma.write.resp.valid := true.B
           }
         }.otherwise {
-          bio.read.req.bits := DontCare
+          readPort.req.bits := DontCare
         }
-        bio.read.resp.ready := false.B
+        readPort.resp.ready := false.B
 
         when (write_norm_q.io.deq.valid &&
           acc_norm_unit_in.ready &&
-          bio.read.resp.valid &&
+          readPort.resp.valid &&
           write_scale_q.io.enq.ready &&
           write_norm_q.io.deq.bits.laddr.is_acc_addr &&
           !write_norm_q.io.deq.bits.laddr.is_garbage() &&
@@ -761,24 +685,25 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
         {
           write_norm_q.io.deq.ready := true.B
           acc_norm_unit_in.valid := true.B
-          bio.read.resp.ready := true.B
+          readPort.resp.ready := true.B
 
           // Some normalizer commands don't write to main memory, so they don't need to be passed on to the scaling units
           write_scale_q.io.enq.valid := NormCmd.writes_to_main_memory(write_norm_q.io.deq.bits.laddr.norm_cmd)
 
-          acc_norm_unit_in.bits.acc_read_resp := bio.read.resp.bits
+          acc_norm_unit_in.bits.acc_read_resp := readPort.resp.bits
           acc_norm_unit_in.bits.acc_read_resp.acc_bank_id := i.U
         }
       }
 
       // Writing to the accumulator banks
       bank_ios.zipWithIndex.foreach { case (bio, i) =>
+        val writePort = bank_access(i)._2
         // Order of precedence during writes is ExecuteController, and then mvin_scale, and then mvin_scale_acc, and
         // then zero_writer
 
         val exwrite = io.acc.write(i).valid
         io.acc.write(i).ready := true.B
-        assert(!(exwrite && !bio.write.ready), "Execute controller write to AccumulatorMem was skipped")
+        assert(!(exwrite && !writePort.ready), "Execute controller write to AccumulatorMem was skipped")
 
         // val from_mvin_scale = mvin_scale_out.valid && mvin_scale_out.bits.tag.is_acc
         val from_mvin_scale = mvin_scale_pixel_repeater.io.resp.valid && mvin_scale_pixel_repeater.io.resp.bits.tag.is_acc
@@ -812,41 +737,41 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
         val consecutive_write_block = RegInit(false.B)
         if (acc_singleported) {
           val consecutive_write_sub_bank = RegInit(0.U((1 max log2Ceil(acc_sub_banks)).W))
-          when (bio.write.fire && bio.write.bits.acc &&
-            (bio.write.bits.addr(log2Ceil(acc_sub_banks)-1,0) === consecutive_write_sub_bank)) {
+          when (writePort.fire && writePort.bits.acc &&
+            (writePort.bits.addr(log2Ceil(acc_sub_banks)-1,0) === consecutive_write_sub_bank)) {
             consecutive_write_block := true.B
-          } .elsewhen (bio.write.fire && bio.write.bits.acc) {
+          } .elsewhen (writePort.fire && writePort.bits.acc) {
             consecutive_write_block := false.B
-            consecutive_write_sub_bank := bio.write.bits.addr(log2Ceil(acc_sub_banks)-1,0)
+            consecutive_write_sub_bank := writePort.bits.addr(log2Ceil(acc_sub_banks)-1,0)
           } .otherwise {
             consecutive_write_block := false.B
           }
         }
-        bio.write.valid := false.B
+        writePort.valid := false.B
 
-        // bio.write.bits.acc := MuxCase(zero_writer.io.resp.bits.laddr.accumulate,
-        bio.write.bits.acc := MuxCase(zero_writer_pixel_repeater.io.resp.bits.laddr.accumulate,
+        // writePort.bits.acc := MuxCase(zero_writer.io.resp.bits.laddr.accumulate,
+        writePort.bits.acc := MuxCase(zero_writer_pixel_repeater.io.resp.bits.laddr.accumulate,
           Seq(exwrite -> io.acc.write(i).bits.acc,
             // from_mvin_scale -> mvin_scale_out.bits.tag.accumulate,
             from_mvin_scale -> mvin_scale_pixel_repeater.io.resp.bits.tag.accumulate,
             from_mvin_scale_acc -> mvin_scale_acc_out.bits.tag.accumulate))
 
-        // bio.write.bits.addr := MuxCase(zero_writer.io.resp.bits.laddr.acc_row(),
-        bio.write.bits.addr := MuxCase(zero_writer_pixel_repeater.io.resp.bits.laddr.acc_row(),
+        // writePort.bits.addr := MuxCase(zero_writer.io.resp.bits.laddr.acc_row(),
+        writePort.bits.addr := MuxCase(zero_writer_pixel_repeater.io.resp.bits.laddr.acc_row(),
           Seq(exwrite -> io.acc.write(i).bits.addr,
             (from_mvin_scale || from_mvin_scale_acc) -> dmaread_row))
 
         when (exwrite) {
-          bio.write.valid := true.B
-          bio.write.bits.data := io.acc.write(i).bits.data
-          bio.write.bits.mask := io.acc.write(i).bits.mask
+          writePort.valid := true.B
+          writePort.bits.data := io.acc.write(i).bits.data
+          writePort.bits.mask := io.acc.write(i).bits.mask
         }.elsewhen (dmaread && !spad_last && !consecutive_write_block) {
-          bio.write.valid := true.B
-          bio.write.bits.data := Mux(from_mvin_scale,
+          writePort.valid := true.B
+          writePort.bits.data := Mux(from_mvin_scale,
             // VecInit(mvin_scale_out.bits.out.map(e => e.withWidthOf(accType))).asTypeOf(acc_row_t),
             VecInit(mvin_scale_pixel_repeater.io.resp.bits.out.map(e => e.withWidthOf(accType))).asTypeOf(acc_row_t),
             mvin_scale_acc_out.bits.out.asTypeOf(acc_row_t))
-          bio.write.bits.mask :=
+          writePort.bits.mask :=
             Mux(from_mvin_scale,
               {
                 val n = accType.getWidth / inputType.getWidth
@@ -858,28 +783,34 @@ class Scratchpad[T <: Data, U <: Data, V <: Data](config: GemminiArrayConfig[T, 
               mvin_scale_acc_out.bits.tag.mask)
 
           when(from_mvin_scale) {
-            mvin_scale_pixel_repeater.io.resp.ready := bio.write.ready
+            mvin_scale_pixel_repeater.io.resp.ready := writePort.ready
           }.otherwise {
-            mvin_scale_acc_out.ready := bio.write.ready
+            mvin_scale_acc_out.ready := writePort.ready
           }
         }.elsewhen (zerowrite && !spad_last && !consecutive_write_block) {
-          bio.write.valid := true.B
-          bio.write.bits.data := 0.U.asTypeOf(acc_row_t)
-          bio.write.bits.mask := {
+          writePort.valid := true.B
+          writePort.bits.data := 0.U.asTypeOf(acc_row_t)
+          writePort.bits.mask := {
             val n = accType.getWidth / inputType.getWidth
             val mask = zero_writer_pixel_repeater.io.resp.bits.mask
             val expanded = VecInit(mask.flatMap(e => Seq.fill(n)(e)))
             expanded
           }
 
-          zero_writer_pixel_repeater.io.resp.ready := bio.write.ready
+          zero_writer_pixel_repeater.io.resp.ready := writePort.ready
         }.otherwise {
-          bio.write.bits.data := DontCare
-          bio.write.bits.mask := DontCare
+          writePort.bits.data := DontCare
+          writePort.bits.mask := DontCare
         }
       }
       banks
     }
+
+    io.tensorcore_drained := (if (tensorcore_memory_access) {
+      !io.busy && tensorcore_idle_checks.reduce(_ && _) &&
+        !acc_mems.map(_.io.busy).reduce(_ || _) &&
+        !io.srams.write.map(_.valid).reduce(_ || _) && !io.acc.write.map(_.valid).reduce(_ || _)
+    } else true.B)
 
     // Counter connection
     io.counter := DontCare

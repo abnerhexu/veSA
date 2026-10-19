@@ -6,15 +6,6 @@ import chisel3.util._
 import Util._
 
 
-class ExtMemIO extends Bundle {
-  val read_req = DecoupledIO(UInt())
-  val read_resp = Flipped(DecoupledIO(UInt()))
-  val write_req = DecoupledIO(new Bundle {
-    val addr = Output(UInt())
-    val data = Output(UInt())
-    val mask = Output(UInt())
-  })
-}
 
 class ExtSpadMemIO(sp_banks: Int, acc_banks: Int, acc_sub_banks: Int) extends Bundle {
   val spad = Vec(sp_banks, new ExtMemIO)

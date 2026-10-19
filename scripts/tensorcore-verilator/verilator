@@ -1,0 +1,7 @@
+#!/bin/sh
+# Lightweight launcher for non-debug Chisel simulations. Some minimal hosts
+# have verilator_bin but lack Perl modules needed by the standard launcher.
+# The binary's compiled-in VERILATOR_ROOT (or an explicit environment setting)
+# must point to its matching installed include/make files. No system edits.
+set -eu
+exec "${TENSORCORE_VERILATOR_BIN:-verilator_bin}" "$@"

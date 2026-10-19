@@ -33,8 +33,8 @@ class ExecuteController[T <: Data, U <: Data, V <: Data](xLen: Int, tagWidth: In
       )))
 
       val read_resp = Flipped(Vec(acc_banks, Decoupled(new AccumulatorScaleResp(
-        Vec(meshColumns, Vec(tileColumns, inputType)),
-        Vec(meshColumns, Vec(tileColumns, accType))
+        fullDataType = Vec(meshColumns, Vec(tileColumns, accType)),
+        rDataType = Vec(meshColumns, Vec(tileColumns, inputType))
       ))))
 
       // val write = Vec(acc_banks, new AccumulatorWriteIO(acc_bank_entries, Vec(meshColumns, Vec(tileColumns, accType))))

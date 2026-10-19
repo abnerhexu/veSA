@@ -11,13 +11,6 @@ class AccumulatorReadRespWithFullData[T <: Data: Arithmetic, U <: Data](fullData
   val full_data = fullDataType.cloneType
 }
 
-class AccumulatorScaleResp[T <: Data: Arithmetic](fullDataType: Vec[Vec[T]], rDataType: Vec[Vec[T]]) extends Bundle {
-  val full_data = fullDataType.cloneType
-  val data = rDataType.cloneType
-  val acc_bank_id = UInt(2.W)
-  val fromDMA = Bool()
-}
-
 class AccumulatorScaleIO[T <: Data: Arithmetic, U <: Data](
   fullDataType: Vec[Vec[T]], scale_t: U,
   rDataType: Vec[Vec[T]]
@@ -104,7 +97,7 @@ class AccumulatorScale[T <: Data, U <: Data](
   val t = io.in.bits.acc_read_resp.data(0)(0).cloneType
   val acc_read_data = io.in.bits.acc_read_resp.data
   val out = Wire(Decoupled(new AccumulatorScaleResp[T](
-    fullDataType, rDataType)(ev)))
+    fullDataType, rDataType)))
 
   if (num_scale_units == -1) {
     val data = io.in.bits.acc_read_resp.data
@@ -163,7 +156,7 @@ class AccumulatorScale[T <: Data, U <: Data](
     val regs = Reg(Vec(nEntries, Valid(new NormalizedOutput[T,U](
       fullDataType, scale_t)(ev))))
     val out_regs = Reg(Vec(nEntries, new AccumulatorScaleResp[T](
-      fullDataType, rDataType)(ev)))
+      fullDataType, rDataType)))
 
     val fired_masks = Reg(Vec(nEntries, Vec(width, Bool())))
     val completed_masks = Reg(Vec(nEntries, Vec(width, Bool())))

@@ -100,9 +100,15 @@ case class GemminiArrayConfig[T <: Data : Arithmetic, U <: Data, V <: Data](
                                                                              tl_ext_mem_base: BigInt = 0,
                                                                              clock_gate: Boolean = false,
 
-                                                                             headerFileName: String = "gemmini_params.h"
+                                                                             headerFileName: String = "gemmini_params.h",
+                                                                             tensorcore_raw_access: Boolean = false,
+                                                                             tensorcore: Option[gemmini.tensorcore.BlackwellConfig] = None
                                                        ) {
   require(inputType.getWidth == weightType.getWidth)
+  val tensorcore_memory_access = tensorcore_raw_access || tensorcore.nonEmpty
+  require(!tensorcore_memory_access ||
+    (inputType.getWidth >= 8 && inputType.getWidth <= 16 && accType.getWidth == 32 && !use_shared_ext_mem),
+    "Tensor raw access requires byte/halfword inputs, raw 32-bit accumulator slots, and internal storage")
   val sp_width = meshColumns * tileColumns * inputType.getWidth
   val sp_bank_entries = sp_capacity match {
     case CapacityInKilobytes(kb) => kb * 1024 * 8 / (sp_banks * sp_width)
@@ -111,6 +117,14 @@ case class GemminiArrayConfig[T <: Data : Arithmetic, U <: Data, V <: Data](
   val acc_bank_entries = acc_capacity match {
     case CapacityInKilobytes(kb) => kb * 1024 * 8 / (acc_banks * meshColumns * tileColumns * accType.getWidth)
     case CapacityInMatrices(ms) => ms * meshRows * tileRows / acc_banks
+  }
+  val tensorcore_memory = tensorcore.map { profile =>
+    require(!clock_gate && !inputType.isInstanceOf[DummySInt],
+      "The first fenced Tensor backend requires an ungated clock and real internal SRAM")
+    require(inputType.getWidth == (profile.format.width max 8),
+      "Tensor scratchpad slots must match the selected raw operand profile")
+    gemmini.tensorcore.TensorMemoryConfig(meshColumns * tileColumns, sp_banks,
+      sp_bank_entries, acc_banks, acc_bank_entries, acc_latency)
   }
   require (!acc_singleported || (acc_sub_banks <= 4 && isPow2(acc_sub_banks)))
 
@@ -342,6 +356,16 @@ case class GemminiArrayConfig[T <: Data : Arithmetic, U <: Data, V <: Data](
     header ++= s"#define XCUSTOM_ACC $opcodeid\n"
 
     header ++= s"#define DIM ${tileColumns*meshColumns}\n"
+    header ++= s"#define GEMMINI_TENSOR_ENABLED ${if (tensorcore.nonEmpty) 1 else 0}\n"
+    tensorcore.foreach { profile =>
+      header ++= s"#define GEMMINI_TENSOR_PROFILE_${profile.format.name.toUpperCase} 1\n"
+      header ++= s"#define GEMMINI_TENSOR_HALF_OUTPUT ${if (profile.halfOutput) 1 else 0}\n"
+      header ++= s"#define GEMMINI_TENSOR_SCALE_BLOCK ${if (profile.grouped) profile.scaleBlockSize else 0}\n"
+      header ++= s"#define GEMMINI_TENSOR_ADDR_AB ${gemmini.tensorcore.TensorCommandISA.AddrAB}\n"
+      header ++= s"#define GEMMINI_TENSOR_ADDR_CD ${gemmini.tensorcore.TensorCommandISA.AddrCD}\n"
+      header ++= s"#define GEMMINI_TENSOR_SCALES ${gemmini.tensorcore.TensorCommandISA.Scales}\n"
+      header ++= s"#define GEMMINI_TENSOR_RUN ${gemmini.tensorcore.TensorCommandISA.Run}\n"
+    }
     header ++= s"#define ADDR_LEN 32\n"
     header ++= s"#define BANK_NUM $sp_banks\n"
     header ++= s"#define BANK_ROWS $sp_bank_entries\n"

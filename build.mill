@@ -9,12 +9,22 @@ import mill.scalalib._
 object tensorcore extends ScalaModule {
   def jvmVersion = "temurin:17"
   def scalaVersion = "2.13.10"
-  def sources = Task.Sources(moduleDir / os.up / "src/main/scala/gemmini/tensorcore")
+  def sources = Task.Sources(
+    moduleDir / os.up / "src/main/scala/gemmini/tensorcore",
+    moduleDir / os.up / "src/main/scala/gemmini/memory",
+    moduleDir / os.up / "src/main/scala/gemmini/Activation.scala",
+    moduleDir / os.up / "src/main/scala/gemmini/SyncMem.scala"
+  )
   def mvnDeps = Seq(mvn"edu.berkeley.cs::chisel3:3.6.0")
   def scalacPluginMvnDeps = Seq(mvn"edu.berkeley.cs:::chisel3-plugin:3.6.0")
   def scalacOptions = Seq("-language:reflectiveCalls", "-deprecation", "-feature")
   object test extends ScalaTests with TestModule.ScalaTest {
-    def forkArgs = Seq("-Xmx1536m", "-XX:ActiveProcessorCount=2")
+    def forkArgs = Seq("-Xmx1536m", "-XX:ActiveProcessorCount=1")
+    def forkEnv = Task {
+      super.forkEnv() ++ Map("PATH" -> (
+        (moduleDir / os.up / os.up / "scripts/tensorcore-verilator").toString +
+          ":" + Task.env.getOrElse("PATH", "")))
+    }
     def sources = Task.Sources(moduleDir / os.up / os.up / "src/test/scala/gemmini/tensorcore")
     def resources = Task.Sources(moduleDir / os.up / os.up / "modeling/tensorcore")
     def mvnDeps = Seq(
@@ -22,4 +32,21 @@ object tensorcore extends ScalaModule {
       mvn"org.scalatest::scalatest:3.2.15"
     )
   }
+}
+
+// Parse edited integration sources without pretending to typecheck Chipyard,
+// Rocket or HardFloat. Full system elaboration remains a separate release gate.
+object integrationSyntax extends ScalaModule {
+  def jvmVersion = "temurin:17"
+  def scalaVersion = "2.13.10"
+  def scalacOptions = Seq("-Ystop-after:parser")
+  def sources = Task.Sources(
+    moduleDir / os.up / "src/main/scala/gemmini/AccumulatorMem.scala",
+    moduleDir / os.up / "src/main/scala/gemmini/AccumulatorScale.scala",
+    moduleDir / os.up / "src/main/scala/gemmini/ExecuteController.scala",
+    moduleDir / os.up / "src/main/scala/gemmini/Scratchpad.scala",
+    moduleDir / os.up / "src/main/scala/gemmini/Controller.scala",
+    moduleDir / os.up / "src/main/scala/gemmini/ConfigsTensor.scala",
+    moduleDir / os.up / "src/main/scala/gemmini/GemminiConfigs.scala"
+  )
 }

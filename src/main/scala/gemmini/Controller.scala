@@ -12,6 +12,7 @@ import freechips.rocketchip.util.{BundleField, ClockGate}
 import freechips.rocketchip.tilelink._
 import GemminiISA._
 import Util._
+import gemmini.tensorcore.{TensorCommandFrontend, TensorCommandGate, TensorExecute, TensorAccumulatorBridge}
 
 class GemminiCmd(rob_entries: Int)(implicit p: Parameters) extends Bundle {
   val cmd = new RoCCCommand
@@ -159,10 +160,24 @@ class GemminiModule[T <: Data: Arithmetic, U <: Data, V <: Data]
   }
 
   val tagWidth = 32
+  val tensor_frontend = tensorcore.map(profile =>
+    Module(new TensorCommandFrontend(profile, tensorcore_memory.get, xLen)))
+  val tensor_exclusive = tensor_frontend.map(_.io.exclusive).getOrElse(false.B)
 
   // Counters
   val counters = Module(new CounterController(outer.config.num_counter, outer.xLen))
-  io.resp <> counters.io.out  // Counter access command will be committed immediately
+  tensor_frontend match {
+    case Some(frontend) =>
+      val responses = Module(new Arbiter(new RoCCResponse, 2))
+      responses.io.in(0) <> counters.io.out
+      responses.io.in(0).valid := (num_counter > 0).B && counters.io.out.valid
+      responses.io.in(1).valid := frontend.io.response.valid
+      responses.io.in(1).bits.rd := frontend.io.response.bits.rd
+      responses.io.in(1).bits.data := frontend.io.response.bits.data
+      frontend.io.response.ready := responses.io.in(1).ready
+      io.resp <> responses.io.out
+    case None => io.resp <> counters.io.out
+  }
   counters.io.event_io.external_values(0) := 0.U
   counters.io.event_io.event_signal(0) := false.B
   counters.io.in.valid := false.B
@@ -242,7 +257,29 @@ class GemminiModule[T <: Data: Arithmetic, U <: Data, V <: Data]
   raw_cmd_q.io.enq.bits.from_conv_fsm := false.B
   raw_cmd_q.io.enq.bits.from_matmul_fsm := false.B
 
-  val raw_cmd = raw_cmd_q.io.deq
+  // Split BEFORE loop expansion. The Tensor head is not older work; counting
+  // it (or the younger queued head) in legacyIdle would deadlock the fence.
+  val raw_head = raw_cmd_q.io.deq
+  val raw_cmd = Wire(Decoupled(new GemminiCmd(reservation_station_entries)))
+  raw_cmd.bits := raw_head.bits
+  tensor_frontend match {
+    case Some(frontend) =>
+      val gate = Module(new TensorCommandGate(new GemminiCmd(reservation_station_entries),
+        (c: GemminiCmd) => c.cmd.inst.funct))
+      gate.io.in <> raw_head
+      gate.io.hold := frontend.io.busy
+      raw_cmd <> gate.io.legacy
+      frontend.io.cmd.valid := gate.io.tensor.valid
+      gate.io.tensor.ready := frontend.io.cmd.ready
+      frontend.io.cmd.bits.funct := gate.io.tensor.bits.cmd.inst.funct
+      frontend.io.cmd.bits.rs1 := gate.io.tensor.bits.cmd.rs1
+      frontend.io.cmd.bits.rs2 := gate.io.tensor.bits.cmd.rs2
+      frontend.io.cmd.bits.rd := gate.io.tensor.bits.cmd.inst.rd
+      frontend.io.cmd.bits.xd := gate.io.tensor.bits.cmd.inst.xd
+    case None =>
+      raw_cmd.valid := raw_head.valid
+      raw_head.ready := raw_cmd.ready
+  }
 
   val max_lds = reservation_station_entries_ld
   val max_exs = reservation_station_entries_ex
@@ -367,6 +404,49 @@ class GemminiModule[T <: Data: Arithmetic, U <: Data, V <: Data]
   ex_controller.io.acc.read_resp <> spad.module.io.acc.read_resp
   ex_controller.io.acc.write <> spad.module.io.acc.write
 
+  if (tensorcore.nonEmpty) {
+    // The command gate prevents new legacy work. Also enforce the ownership
+    // boundary at local-memory request ports, instead of relying on assertions
+    // or raw-bank arbitration to protect a running matrix from a writer.
+    spad.module.io.dma.read.req.valid := load_controller.io.dma.req.valid && !tensor_exclusive
+    load_controller.io.dma.req.ready := spad.module.io.dma.read.req.ready && !tensor_exclusive
+    spad.module.io.dma.write.req.valid := store_controller.io.dma.req.valid && !tensor_exclusive
+    store_controller.io.dma.req.ready := spad.module.io.dma.write.req.ready && !tensor_exclusive
+    for (i <- 0 until sp_banks) {
+      spad.module.io.srams.write(i).valid := ex_controller.io.srams.write(i).valid && !tensor_exclusive
+      ex_controller.io.srams.write(i).ready := spad.module.io.srams.write(i).ready && !tensor_exclusive
+    }
+    for (i <- 0 until acc_banks) {
+      spad.module.io.acc.read_req(i).valid := ex_controller.io.acc.read_req(i).valid && !tensor_exclusive
+      ex_controller.io.acc.read_req(i).ready := spad.module.io.acc.read_req(i).ready && !tensor_exclusive
+      spad.module.io.acc.write(i).valid := ex_controller.io.acc.write(i).valid && !tensor_exclusive
+      ex_controller.io.acc.write(i).ready := spad.module.io.acc.write(i).ready && !tensor_exclusive
+    }
+  }
+
+  val tensor_engine = tensorcore.map { profile =>
+    val memory = tensorcore_memory.get
+    val engine = Module(new TensorExecute(profile, memory))
+    engine.io.cmd <> tensor_frontend.get.io.execute
+    tensor_frontend.get.io.completed <> engine.io.completed
+    for (i <- 0 until acc_banks) {
+      val bridge = Module(new TensorAccumulatorBridge(memory,
+        Vec(meshColumns, Vec(tileColumns, accType)), acc_scale_t.asInstanceOf[V]))
+      bridge.io.read <> engine.io.accRead(i)
+      bridge.io.write <> engine.io.accWrite(i)
+      spad.module.io.tensorcore_acc.get(i) <> bridge.io.bank
+    }
+    engine
+  }
+  // Raw-port-only configurations retain the safe idle behavior.
+  if (tensorcore.isEmpty) {
+    spad.module.io.tensorcore_acc.foreach(_.foreach { port =>
+      port.read.req.valid := false.B; port.read.req.bits := DontCare
+      port.read.resp.ready := false.B
+      port.write.valid := false.B; port.write.bits := DontCare
+    })
+  }
+
   // Im2Col unit
   val im2col = withClock (gated_clock) { Module(new Im2Col(outer.config)) }
 
@@ -377,7 +457,10 @@ class GemminiModule[T <: Data: Arithmetic, U <: Data, V <: Data]
   ex_controller.io.im2col.resp <> im2col.io.resp
 
   // Wire arbiter for ExecuteController and Im2Col scratchpad reads
-  (ex_controller.io.srams.read, im2col.io.sram_reads, spad.module.io.srams.read).zipped.foreach { case (ex_read, im2col_read, spad_read) =>
+  (0 until sp_banks).foreach { i =>
+    val ex_read = ex_controller.io.srams.read(i)
+    val im2col_read = im2col.io.sram_reads(i)
+    val spad_read = spad.module.io.srams.read(i)
     val req_arb = Module(new Arbiter(new ScratchpadReadReq(n=sp_bank_entries), 2))
 
     req_arb.io.in(0) <> ex_read.req
@@ -394,6 +477,18 @@ class GemminiModule[T <: Data: Arithmetic, U <: Data, V <: Data]
     im2col_read.resp.bits := spad_read.resp.bits
 
     spad_read.resp.ready := ex_read.resp.ready || im2col_read.resp.ready
+    tensor_engine.foreach { engine =>
+      val port = engine.io.spad(i)
+      spad_read.req.valid := Mux(tensor_exclusive, port.req.valid, req_arb.io.out.valid)
+      spad_read.req.bits := Mux(tensor_exclusive, port.req.bits, req_arb.io.out.bits)
+      req_arb.io.out.ready := spad_read.req.ready && !tensor_exclusive
+      port.req.ready := spad_read.req.ready && tensor_exclusive
+      ex_read.resp.valid := spad_read.resp.valid && !tensor_exclusive
+      im2col_read.resp.valid := spad_read.resp.valid && !tensor_exclusive
+      port.resp.valid := spad_read.resp.valid && tensor_exclusive
+      port.resp.bits := spad_read.resp.bits
+      spad_read.resp.ready := Mux(tensor_exclusive, port.resp.ready, ex_read.resp.ready || im2col_read.resp.ready)
+    }
   }
 
   // Wire up controllers to ROB
@@ -440,7 +535,23 @@ class GemminiModule[T <: Data: Arithmetic, U <: Data, V <: Data]
   reservation_station_completed_arb.io.out.ready := true.B
 
   // Wire up global RoCC signals
-  io.busy := raw_cmd.valid || loop_conv_unroller_busy || loop_matmul_unroller_busy || reservation_station.io.busy || spad.module.io.busy || unrolled_cmd.valid || loop_cmd.valid || conv_cmd.valid
+  val legacy_busy = loop_conv_unroller_busy || loop_matmul_unroller_busy || reservation_station.io.busy ||
+    unrolled_cmd.valid || loop_cmd.valid || conv_cmd.valid || load_controller.io.busy ||
+    store_controller.io.busy || ex_controller.io.busy || (if (num_counter > 0) counters.io.out.valid else false.B)
+  tensor_frontend.foreach { frontend =>
+    frontend.io.legacyIdle := !legacy_busy
+    frontend.io.memoryIdle := spad.module.io.tensorcore_drained
+    when(frontend.io.exclusive) {
+      assert(!load_controller.io.dma.req.valid && !store_controller.io.dma.req.valid)
+      assert(!ex_controller.io.srams.write.map(_.valid).reduce(_ || _))
+      assert(!ex_controller.io.acc.write.map(_.valid).reduce(_ || _))
+      assert(!ex_controller.io.acc.read_req.map(_.valid).reduce(_ || _))
+      assert(!ex_controller.io.srams.read.map(_.req.valid).reduce(_ || _))
+      assert(!im2col.io.sram_reads.map(_.req.valid).reduce(_ || _))
+    }
+  }
+  io.busy := raw_head.valid || legacy_busy || spad.module.io.busy ||
+    tensor_frontend.map(_.io.busy).getOrElse(false.B)
 
   io.interrupt := tlb.io.exp.map(_.interrupt).reduce(_ || _)
 
