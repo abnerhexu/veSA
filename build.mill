@@ -1,0 +1,25 @@
+//| mill-version: 1.3.0
+package build
+
+import mill._
+import mill.scalalib._
+
+// Deliberately excludes the Rocket/Chipyard-dependent Gemmini sources. The same
+// tensorcore sources remain under src/main/scala for integration with build.sbt.
+object tensorcore extends ScalaModule {
+  def jvmVersion = "temurin:17"
+  def scalaVersion = "2.13.10"
+  def sources = Task.Sources(moduleDir / os.up / "src/main/scala/gemmini/tensorcore")
+  def mvnDeps = Seq(mvn"edu.berkeley.cs::chisel3:3.6.0")
+  def scalacPluginMvnDeps = Seq(mvn"edu.berkeley.cs:::chisel3-plugin:3.6.0")
+  def scalacOptions = Seq("-language:reflectiveCalls", "-deprecation", "-feature")
+  object test extends ScalaTests with TestModule.ScalaTest {
+    def forkArgs = Seq("-Xmx1536m", "-XX:ActiveProcessorCount=2")
+    def sources = Task.Sources(moduleDir / os.up / os.up / "src/test/scala/gemmini/tensorcore")
+    def resources = Task.Sources(moduleDir / os.up / os.up / "modeling/tensorcore")
+    def mvnDeps = Seq(
+      mvn"edu.berkeley.cs::chiseltest:0.6.0",
+      mvn"org.scalatest::scalatest:3.2.15"
+    )
+  }
+}

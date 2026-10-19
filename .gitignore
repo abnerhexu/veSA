@@ -1,4 +1,6 @@
 ### Project Specific stuff
+out/
+__pycache__/
 test_run_dir/*
 ### XilinxISE template
 # intermediate build files
