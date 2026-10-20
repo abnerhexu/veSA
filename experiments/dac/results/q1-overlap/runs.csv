@@ -1,0 +1,7 @@
+run_id,stage,status,seconds,max_rss_kib,exit_code,log,command,manifest
+overlap-00,rtl-hopper-overlap,passed,13.081,369092,0,00-rtl-hopper-overlap.log,"[""mill"", ""--no-server"", ""-j"", ""1"", ""dac.runMain"", ""gemmini.dac.GenerateQ1"", ""hopper-overlap"", ""/home/hexu/proj/veSA/veSA/out/dac-q1/overlap/rtl-hopper-overlap""]",manifest-00.json
+overlap-01,rtl-blackwell-overlap,passed,5.135,294256,0,01-rtl-blackwell-overlap.log,"[""mill"", ""--no-server"", ""-j"", ""1"", ""dac.runMain"", ""gemmini.dac.GenerateQ1"", ""blackwell-overlap"", ""/home/hexu/proj/veSA/veSA/out/dac-q1/overlap/rtl-blackwell-overlap""]",manifest-00.json
+overlap-02,simulate,passed,36.159,374124,0,02-simulate.log,"[""mill"", ""--no-server"", ""-j"", ""1"", ""dac.test.testOnly"", ""gemmini.dac.Q1Spec"", ""--"", ""-z"", ""overlap""]",manifest-02.json
+overlap-03,synth-hopper-overlap,passed,2.616,54004,0,03-synth-hopper-overlap.log,"[""/home/hexu/tool/oss-cad-suite/bin/yosys"", ""-Q"", ""-T"", ""-s"", ""/home/hexu/proj/veSA/veSA/out/dac-q1/overlap/hopper-overlap.ys""]",manifest-03.json
+overlap-04,synth-blackwell-overlap,passed,3.289,58216,0,04-synth-blackwell-overlap.log,"[""/home/hexu/tool/oss-cad-suite/bin/yosys"", ""-Q"", ""-T"", ""-s"", ""/home/hexu/proj/veSA/veSA/out/dac-q1/overlap/blackwell-overlap.ys""]",manifest-03.json
+overlap-05,plot,passed,2.081,115652,0,05-plot.log,"[""/home/hexu/proj/veSA/veSA/../.venv/bin/python"", ""/home/hexu/proj/veSA/veSA/experiments/dac/plot.py"", ""/home/hexu/proj/veSA/veSA/out/dac-q1/overlap""]",manifest-05.json

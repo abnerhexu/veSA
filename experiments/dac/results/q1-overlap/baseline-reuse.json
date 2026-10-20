@@ -1,0 +1,18 @@
+{
+  "source": "../initial",
+  "evidence": "../../../experiments/dac/results/q1-initial",
+  "designs": [
+    "ieee",
+    "hopper",
+    "blackwell"
+  ],
+  "reason": "Unchanged B0/B1 RTL; preserve first-batch measurements instead of rerunning",
+  "sha256": {
+    "ieee-stat.json": "5bf9b17e40c8ed5dd19067f3399c123d44892b352ed6b5188d0cc03b2cad4bf2",
+    "ieee-runtime.csv": "946f96ad5e5fdaee89cd8c23a6e5bcdff0e953ffd0cb17605db8b80100b0e3c5",
+    "hopper-stat.json": "0a379da6580473b71e80367d850cdd37fabfe0e0c0a32fc618df860925e79cbf",
+    "hopper-runtime.csv": "5a7709fc1470452b846e230f4d36cff5c48a6fca7d17a21666d93d0459b3893a",
+    "blackwell-stat.json": "728cf0828e9a6cf19c9ba4d3878bd8854a770e23ff8b069bd27cf5bed6e46cf5",
+    "blackwell-runtime.csv": "cea322de04d75c17c1b21ca11655ff413ac2374826383cca2d3be9c4656b3c65"
+  }
+}

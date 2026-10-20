@@ -1,0 +1,40 @@
+{
+  "head": "670b3d3c9d44eb2584e9b76de2f6ae1bd1eb3c59",
+  "source_sha256": {
+    "build.mill": "bad21400074b335c69b56acee8baa90f0242df6ebe394d43c37ec5c3b2da7cd8",
+    "integration/dependencies.lock": "aae6729b138e9823629be0156dd92695ee729804be05b0d2a542694daefaf59a",
+    "modeling/tensorcore/reference.py": "99bbd6476180345134245eb4977165060307bd52ab5232accfadd4550f604a48",
+    "experiments/dac/scala/IeeeFmaMesh.scala": "d8543738f306725048efdd60ba9d081fd334b8dd499a5e715430d2ecb2f0f521",
+    "experiments/dac/scala/IeeeFmaPE.scala": "f6b2cb9c745d851f65dbe71522c9ea7075a9387d5f3cbb6141485accbac3f8e5",
+    "experiments/dac/scala/OverlapTensorMesh.scala": "575a06a2e7ee205ef3c19f143b906786fe89ef2761e0d6f608ed54969d3df0d4",
+    "experiments/dac/scala/Q1Mesh.scala": "cbd7fcf3cb8b8a91b6b686045bbaef24dcb56ab8ca671a4fb5325f0c29a819ea",
+    "experiments/dac/test/Q1Spec.scala": "42579bb07ba40faf03de7449621dbc1dd9c73186bb9d186c1435f53a977b59c2",
+    "experiments/dac/plot.py": "4a7d0c04c21c0cb5fe8b34a7f19060e8ef7492243d83d70a00a7787f95f66b4d",
+    "experiments/dac/run.py": "460f4aff7dc6fb6894590e3935246c48db82fc590bbab6605b77c114face9260",
+    "experiments/dac/vectors.py": "6b77a8ed61046c7b099ff4374907234b469735021b9555c7647e804487d155a1",
+    "src/main/scala/gemmini/tensorcore/Formats.scala": "fb250ca752ae3792ce1402934f5e140279d7d885a9659c0395d72672bcb9bbaf",
+    "src/main/scala/gemmini/tensorcore/FusedAccumulator.scala": "99cb4d9f6d4979506a8d7b6e0def6e985e6abf367f7199ee28ce0855b5dc5258",
+    "src/main/scala/gemmini/tensorcore/Generate.scala": "ab9f611e1b4436583205483afa0a8c648ae22aec1ff954206103ff2bde016a7f",
+    "src/main/scala/gemmini/tensorcore/GenerateAccumulator.scala": "e61b49b782dc857ddb713a9105564be675ced0e5a0cd7abe2fdcdf5212393717",
+    "src/main/scala/gemmini/tensorcore/GroupedDotFrontend.scala": "508fac33ca75f95e9fa5c9487b69de2e5fa0d67ac03e8146adb8b980c79a87bb",
+    "src/main/scala/gemmini/tensorcore/TensorAccumulatorBridge.scala": "0924685e20abf6ee8399c03e9534d0058734274c8e4df6b3278b2259d1119ed0",
+    "src/main/scala/gemmini/tensorcore/TensorArithmetic.scala": "22d24eddc0461fbf50bec026e0d0e4fc13b6fd64f9fbf6fe85b7dfdaf73aa1d0",
+    "src/main/scala/gemmini/tensorcore/TensorCommandFrontend.scala": "d939c5be70f8f7ab8373cf6b2dcd9ff74a77573a8ade1345896c1854ceba23a1",
+    "src/main/scala/gemmini/tensorcore/TensorExecute.scala": "6e8a7800d0612c5a29b94da5e8e50514ed0c1fc132e216861fd87abc9542e643",
+    "src/main/scala/gemmini/tensorcore/TensorMesh.scala": "884b7ef4c02fac96cf74a5b7e2a92f231ec164448be5da6d521a4072f097a69d",
+    "src/main/scala/gemmini/tensorcore/TensorPE.scala": "330d565e6e83546a3866f5e1fa5aac666231f3080c9ebc002e11ac6d97d53114"
+  },
+  "dirty_diff_sha256": "1cf5cef0d1ba31fec9622365bd160ad17689b564e0c7b9d5f38001d00cbaf913",
+  "pdk_version": "c6d73a35f524070e85faff4a6a9eef49553ebc2b",
+  "liberty": "/home/hexu/.volare/volare/sky130/versions/c6d73a35f524070e85faff4a6a9eef49553ebc2b/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib",
+  "liberty_sha256": "8e78e14442062dba34d414fca6490b2f6b96038d4510d1438ca44fee31487135",
+  "scope": "2x2 E4M3 core-only; no SRAM/DMA; no STA; native SKY130 area",
+  "memory_limit": "JVM 1536 MiB; Yosys/ABC each 4 GiB virtual address space; serial tasks",
+  "versions": {
+    "torch": "2.9.0+cpu",
+    "mmasim": "2.0.3",
+    "matplotlib": "3.11.2"
+  },
+  "yosys_version": "Yosys 0.70+157 (git sha1 af9f71e51, Release, Clang /usr/bin/clang++ 21.1.8)",
+  "vectors_sha256": "31d81b6b9bd8c76be24cae4cea179632c18cf44c508cb64b8cbdf1dbedb4602d"
+}
