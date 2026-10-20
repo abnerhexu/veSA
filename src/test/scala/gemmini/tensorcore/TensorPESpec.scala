@@ -6,17 +6,20 @@ import org.scalatest.flatspec.AnyFlatSpec
 import scala.io.Source
 import scala.util.Random
 
-class TensorPESpec extends AnyFlatSpec with ChiselScalatestTester {
+abstract class TensorPEChecks(hopper: Boolean) extends AnyFlatSpec with ChiselScalatestTester {
   for (format <- Seq(TensorFormat.E4M3, TensorFormat.E5M2, TensorFormat.FP16, TensorFormat.BF16);
        half <- Seq(false, true) if !(format == TensorFormat.BF16 && half)) {
     val label = s"${format.name}-${if (half) "f16" else "f32"}"
-    "Blackwell TensorPE" should s"match author-verified vectors for $label under stalls" in {
-      val source = Source.fromInputStream(getClass.getResourceAsStream("/vectors.tsv"))
+    val architecture = if (hopper) "Hopper" else "Blackwell"
+    s"$architecture TensorPE" should s"match author-verified vectors for $label under stalls" in {
+      val source = Source.fromInputStream(getClass.getResourceAsStream(
+        if (hopper) "/hopper-vectors.tsv" else "/vectors.tsv"))
       val vectors = try source.getLines().filterNot(_.startsWith("#")).map(_.split(" ")).filter(
         fields => fields(0) == format.name && fields(1) == (if (half) "f16" else "f32")).toVector
       finally source.close()
       assert(vectors.nonEmpty, s"Missing vectors for $label; run modeling/tensorcore/validate.py")
-      test(new TensorPE(BlackwellConfig(format, half))) { dut =>
+      val profile: TensorConfig = if (hopper) HopperConfig(format, half) else BlackwellConfig(format, half)
+      test(new TensorPE(profile)).withAnnotations(TensorTestBackend.annotations) { dut =>
         val random = new Random(776)
         dut.io.req.valid.poke(false.B)
         dut.io.in.valid.poke(false.B)
@@ -76,3 +79,6 @@ class TensorPESpec extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 }
+
+class TensorPESpec extends TensorPEChecks(false)
+class HopperPESpec extends TensorPEChecks(true)

@@ -18,8 +18,8 @@ case class TensorMemoryConfig(dim: Int = 2, spBanks: Int = 4, spDepth: Int = 256
   val spRows = spBanks * spDepth
   val accRows = accBanks * accDepth
   val accWidth = dim * 32
-  def slotWidth(config: BlackwellConfig): Int = config.format.width max 8
-  def spWidth(config: BlackwellConfig): Int = dim * slotWidth(config)
+  def slotWidth(config: TensorConfig): Int = config.format.width max 8
+  def spWidth(config: TensorConfig): Int = dim * slotWidth(config)
 }
 
 /** All addresses are flat ROW indices, not byte addresses or LocalAddr metadata.
@@ -27,7 +27,7 @@ case class TensorMemoryConfig(dim: Int = 2, spBanks: Int = 4, spDepth: Int = 256
   * contain one byte per lane, and advance once per scaleBlockSize K slices.
   * C/D are dim consecutive accumulator rows. One full physical output tile.
   */
-class TensorExecuteRequest(config: BlackwellConfig) extends Bundle {
+class TensorExecuteRequest(config: TensorConfig) extends Bundle {
   val a = UInt(32.W)
   val b = UInt(32.W)
   val c = UInt(32.W)
@@ -53,7 +53,7 @@ class TensorAccumulatorWrite(mem: TensorMemoryConfig) extends Bundle {
   * Completion is held until consumed and follows the final write commit delay.
   * The owner must fence other local-memory writers throughout busy.
   */
-class TensorExecute(val config: BlackwellConfig = BlackwellConfig(),
+class TensorExecute(val config: TensorConfig = BlackwellConfig(),
                     val mem: TensorMemoryConfig = TensorMemoryConfig()) extends Module {
   val io = IO(new Bundle {
     val cmd = Flipped(Decoupled(new TensorExecuteRequest(config)))

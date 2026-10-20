@@ -49,9 +49,12 @@ object TensorArithmetic {
   }
 
   /** Exact fixed-point sum -> RZ-FP32 or RNE-FP16; no intermediate FP rounding. */
-  def pack(sum: SInt, exponent: SInt, fractionalBits: Int, halfOutput: Boolean): UInt = {
+  def pack(sum: SInt, exponent: SInt, fractionalBits: Int, halfOutput: Boolean,
+           outputFractionBits: Int = 23): UInt = {
     val width = sum.getWidth
-    val fraction = if (halfOutput) 10 else 23
+    val fraction = if (halfOutput) 10 else outputFractionBits
+    require(halfOutput || Set(13, 23).contains(fraction))
+    val storedFraction = if (halfOutput) 10 else 23
     val bias = if (halfOutput) 15 else 127
     val exponentBits = if (halfOutput) 5 else 8
     val sign = sum < 0.S
@@ -82,8 +85,9 @@ object TensorArithmetic {
     val finalExponent = normalExponent + carry.asUInt.zext
     val encodedExponent = Wire(UInt(exponentBits.W))
     encodedExponent := Mux(significand(fraction), (finalExponent + bias.S).asUInt, 0.U)
-    val finite = Cat(sign, encodedExponent, significand(fraction - 1, 0))
-    val infinity = Cat(sign, Fill(exponentBits, 1.U(1.W)), 0.U(fraction.W))
+    val finite = Cat(sign, encodedExponent, significand(fraction - 1, 0),
+      0.U((storedFraction - fraction).W))
+    val infinity = Cat(sign, Fill(exponentBits, 1.U(1.W)), 0.U(storedFraction.W))
     Mux(magnitude === 0.U, 0.U, Mux(finalExponent > bias.S, infinity, finite))
   }
 }

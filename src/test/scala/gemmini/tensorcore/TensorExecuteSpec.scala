@@ -12,7 +12,7 @@ import scala.io.Source
   * router and raw bridge used by the optional Scratchpad integration path.
   * Neither mode claims full Controller/DMA/normalizer integration.
   */
-class TensorMemoryHarness(config: BlackwellConfig, mem: TensorMemoryConfig,
+class TensorMemoryHarness(config: TensorConfig, mem: TensorMemoryConfig,
                           realAccumulator: Boolean = false, singlePorted: Boolean = false,
                           fencedCommands: Boolean = false) extends Module {
   val io = IO(new Bundle {

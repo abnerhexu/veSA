@@ -11,7 +11,7 @@ class FusedRequest(outputWidth: Int, maxTerms: Int) extends Bundle {
 /** Paper776 truncated fused summation, shared by T-FDPA and GST-FDPA.
   * Do not replace a cancelling group's prescribed exponent with zeroExponent.
   */
-class FusedAccumulator(config: BlackwellConfig, maxTerms: Int) extends Module {
+class FusedAccumulator(config: TensorConfig, maxTerms: Int) extends Module {
   val io = IO(new Bundle {
     val req = Flipped(Decoupled(new FusedRequest(config.outputWidth, maxTerms)))
     val in = Flipped(Decoupled(new TensorTerm))
@@ -64,7 +64,11 @@ class FusedAccumulator(config: BlackwellConfig, maxTerms: Int) extends Module {
   }
   private val term = terms(Mux(index === length, maxTerms.U, index))
   private val delta = (maximum - term.exponent).asUInt
-  private val aligned = (term.magnitude << (config.fractionalBits - 23)) >> delta
+  // For F<23, combine the precision reduction and exponent alignment before
+  // truncating each magnitude. Negative arithmetic shifts would round down.
+  private val aligned = if (config.fractionalBits >= 23)
+    (term.magnitude << (config.fractionalBits - 23)) >> delta
+  else term.magnitude >> (delta +& (23 - config.fractionalBits).U)
   private val signedTerm = Wire(SInt(config.sumWidth.W))
   signedTerm := Mux(term.sign, -aligned.zext, aligned.zext)
   when(state === replay) {
@@ -78,7 +82,8 @@ class FusedAccumulator(config: BlackwellConfig, maxTerms: Int) extends Module {
     val sign = (BigInt(1) << (config.outputWidth - 1)).U(config.outputWidth.W)
     result := Mux(nan || (positiveInfinity && negativeInfinity), canonicalNaN,
       Mux(positiveInfinity || negativeInfinity, infinity | Mux(negativeInfinity, sign, 0.U),
-        TensorArithmetic.pack(sum, maximum, config.fractionalBits, config.halfOutput)))
+        TensorArithmetic.pack(sum, maximum, config.fractionalBits, config.halfOutput,
+          config.outputFractionBits)))
     state := respond
   }
   when(io.out.fire) { state := idle }

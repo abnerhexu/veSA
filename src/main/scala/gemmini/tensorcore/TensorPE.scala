@@ -3,12 +3,12 @@ package gemmini.tensorcore
 import chisel3._
 import chisel3.util._
 
-class TensorRequest(config: BlackwellConfig) extends Bundle {
+class TensorRequest(config: TensorConfig) extends Bundle {
   val c = UInt(config.outputWidth.W)
   val length = UInt(log2Ceil(config.fusionLength + 1).W)
 }
 
-class TensorOperands(config: BlackwellConfig) extends Bundle {
+class TensorOperands(config: TensorConfig) extends Bundle {
   val a = UInt(config.format.width.W)
   val b = UInt(config.format.width.W)
   val alpha = if (config.grouped) Some(UInt(8.W)) else None
@@ -16,7 +16,7 @@ class TensorOperands(config: BlackwellConfig) extends Bundle {
 }
 
 /** Low-precision front end to the shared exact fused accumulator. */
-class TensorPE(val config: BlackwellConfig = BlackwellConfig()) extends Module {
+class TensorPE(val config: TensorConfig = BlackwellConfig()) extends Module {
   val io = IO(new Bundle {
     val req = Flipped(Decoupled(new TensorRequest(config)))
     val in = Flipped(Decoupled(new TensorOperands(config)))

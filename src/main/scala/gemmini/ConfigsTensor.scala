@@ -2,7 +2,7 @@ package gemmini
 
 import chisel3._
 import gemmini.Arithmetic.SIntArithmetic
-import gemmini.tensorcore.BlackwellConfig
+import gemmini.tensorcore.{BlackwellConfig, HopperConfig, TensorConfig}
 
 /** Small first-release configurations. SInt is only a raw storage carrier for
   * the Tensor path; legacy integer MMA remains a separate command family.
@@ -10,7 +10,15 @@ import gemmini.tensorcore.BlackwellConfig
   */
 object TensorCoreConfigs {
   def blackwell(profile: BlackwellConfig = BlackwellConfig(), dim: Int = 2,
-                singlePortedAccumulator: Boolean = false): GemminiArrayConfig[SInt, Float, Float] = {
+                singlePortedAccumulator: Boolean = false): GemminiArrayConfig[SInt, Float, Float] =
+    configured(profile, dim, singlePortedAccumulator)
+
+  def hopper(profile: HopperConfig = HopperConfig(), dim: Int = 2,
+             singlePortedAccumulator: Boolean = false): GemminiArrayConfig[SInt, Float, Float] =
+    configured(profile, dim, singlePortedAccumulator)
+
+  def configured(profile: TensorConfig, dim: Int = 2,
+                 singlePortedAccumulator: Boolean = false): GemminiArrayConfig[SInt, Float, Float] = {
     require(Set(2, 4).contains(dim), "Start with a small Tensor array")
     val slot = profile.format.width max 8
     GemminiConfigs.defaultConfig.copy(
@@ -38,3 +46,7 @@ object TensorCoreConfigs {
 class BlackwellTensorCoreConfig(profile: BlackwellConfig = BlackwellConfig(), dim: Int = 2,
                                singlePortedAccumulator: Boolean = false)
   extends DefaultGemminiConfig(TensorCoreConfigs.blackwell(profile, dim, singlePortedAccumulator))
+
+class HopperTensorCoreConfig(profile: HopperConfig = HopperConfig(), dim: Int = 2,
+                            singlePortedAccumulator: Boolean = false)
+  extends DefaultGemminiConfig(TensorCoreConfigs.hopper(profile, dim, singlePortedAccumulator))
