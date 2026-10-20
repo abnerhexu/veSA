@@ -1,0 +1,19 @@
+{
+  "script_sha256": "9d56077d61f1f22f1e1e92a76ea291e672eb0f6de3ded0dc7e754e765c8f8c40",
+  "inputs": {
+    "out/dac-q3/dim2": {
+      "global_inputs_and_expected_sha256": "3a01422314e9ec31fcfb947b4d3e23e981e4c12e58c2264e5cec6bd977b5eeaa",
+      "vectors_sha256": "ab86dc45a5c2b911dea6f77f17ac2510e369d0f90bfdecc0e61afd716e5fca48",
+      "ppa_sha256": "cf98dd89ead836d765ead185b30955b16f85dfa7dc9cd3c0197018b8b2967873",
+      "task_runtime_sha256": "8a898149388b4ede1df3d1c649c98a76ad06db0671bc9251ad95c45c28debeed",
+      "manifest": "out/dac-q3/dim2/manifest.json"
+    },
+    "out/dac-q3/dim4": {
+      "global_inputs_and_expected_sha256": "3a01422314e9ec31fcfb947b4d3e23e981e4c12e58c2264e5cec6bd977b5eeaa",
+      "vectors_sha256": "ca0a5fbbc3f0f09110e683ec8bed4f3cbec2be0e44fbcb7cf5d2268b59ca7042",
+      "ppa_sha256": "937a8df54e42e2a0a9aa049080b637f45522162a0b5afff85b1812bb46b0af06",
+      "task_runtime_sha256": "f2937e0bdee35f065b1906239efaad9f2ca16abf6b83f7a01d6ed3498daa700e",
+      "manifest": "out/dac-q3/dim4/manifest.json"
+    }
+  }
+}

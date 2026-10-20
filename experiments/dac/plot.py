@@ -11,7 +11,8 @@ from matplotlib.patches import Patch
 def main(directory):
     root = Path(directory)
     ppa = {row["design"]: row for row in csv.DictReader((root / "ppa.csv").open())}
-    runtime = [r for r in csv.DictReader((root / "runtime.csv").open())
+    runtime_path = root / ("task-runtime.csv" if (root / "task-runtime.csv").exists() else "runtime.csv")
+    runtime = [r for r in csv.DictReader(runtime_path.open())
                if r["workload"].startswith("gemm_") and r["result_check"] == "passed"]
     breakdown = list(csv.DictReader((root / "breakdown.csv").open()))
     all_designs = [d for d in ("ieee", "hopper", "blackwell", "hopper-overlap", "blackwell-overlap",
@@ -41,6 +42,7 @@ def main(directory):
                            Patch(facecolor="#cccccc", hatch="///", label="Mesh + forwarding")],
                    loc="upper left", frameon=False, fontsize=6)
     summary = []
+    m, n = int(runtime[0]["M"]), int(runtime[0]["N"])
     for d in all_designs:
         rows = sorted((r for r in runtime if r["design"] == d), key=lambda r: int(r["K"]))
         ks = [int(r["K"]) for r in rows]
@@ -55,19 +57,19 @@ def main(directory):
                  "blackwell-reuse-overlap": dict(marker="^", linestyle=":", markersize=4)}[d]
         if d in designs:
             axes[1].plot(ks, cycles, color=colors[d], label=labels[d], **style)
-            axes[2].plot(ks, [8*k/c/area*1e6 for k, c in zip(ks, cycles)], color=colors[d], **style)
+            axes[2].plot(ks, [2*m*n*k/c/area*1e6 for k, c in zip(ks, cycles)], color=colors[d], **style)
         for k, c in zip(ks, cycles):
             base = next(int(r["cycles"]) for r in runtime if r["design"] == "ieee" and int(r["K"]) == k)
             summary.append({"design": d, "K": k, "area_um2": area, "cycles": c,
-                            "operations_per_cycle": 8*k/c, "area_ratio_to_ieee": area/float(ppa["ieee"]["area_um2"]),
+                            "operations_per_cycle": 2*m*n*k/c, "area_ratio_to_ieee": area/float(ppa["ieee"]["area_um2"]),
                             "cycle_ratio_to_ieee": c/base,
-                            "operations_per_cycle_per_mm2": 8*k/c/area*1e6})
+                            "operations_per_cycle_per_mm2": 2*m*n*k/c/area*1e6})
     axes[1].set_ylabel("Cycles / GEMM")
     axes[1].set_title("(b) Request → result")
     axes[2].set_ylabel("Operations / cycle / mm²")
     axes[2].set_title("(c) Throughput density")
     for ax in axes[1:]:
-        ax.set_xlabel("K (M=N=2)")
+        ax.set_xlabel(f"K (M=N={m})")
         ax.set_xticks([64, 128, 256])
         ax.set_ylim(bottom=0)
     for ax in axes:

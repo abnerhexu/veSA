@@ -1,0 +1,19 @@
+{
+  "source_snapshot_commit": "1e8d460",
+  "sources": {
+    "ppa.csv": {
+      "path": "experiments/dac/results/q1-reuse/ppa.csv",
+      "sha256": "1d37ef95968f9d7b73764aec11d743e456c4aefe9482b7ab9bed6655ba15cf2f"
+    },
+    "breakdown.csv": {
+      "path": "experiments/dac/results/q1-reuse/breakdown.csv",
+      "sha256": "80cd2029de50bdbd368906feb1e477b2fa136494eedc7d71257c8baa6f498e4b"
+    }
+  },
+  "designs": [
+    "blackwell-reuse-overlap",
+    "hopper-reuse-overlap",
+    "ieee"
+  ],
+  "scope": "Only unchanged 2x2 synthesis areas reused; Q3 task vectors and RTL cycles measured anew. New constructor defaults preserve the previous 2x2 circuit; PE source unchanged."
+}

@@ -131,3 +131,39 @@ The comparison figure shows B0, dual-bank B2, and slot-reuse B2. `summary.csv`
 retains the original serial B1 points as well. This experiment uses registers
 with old-value read/write semantics; it does not establish an SRAM macro port
 mapping or read-during-write behavior.
+
+## Q3: fixed global task across array sizes
+
+`--dim` parameterizes the experimental wrapper and IEEE mesh; production
+arithmetic remains unchanged. `--design q3` selects IEEE FMA and both slot-reuse
+profiles. Use `--problem-dim 4` for identical 4×K by K×4 global inputs at each
+array size. The 2×2 array runs four output tiles serially; the 4×4 array runs
+one. K=1/31/32/33/65 and special values supplement the K=64/128/256 performance
+tasks. Each tile retains the full K dimension and its FP32 C initial value.
+
+For example, run these stages serially, changing `--dim` and output directory
+for the other size:
+
+```sh
+../.venv/bin/python experiments/dac/run.py vectors --design q3 --dim 4 --problem-dim 4 --output out/dac-q3/dim4
+../.venv/bin/python experiments/dac/run.py rtl --design q3 --dim 4 --problem-dim 4 --output out/dac-q3/dim4
+../.venv/bin/python experiments/dac/run.py simulate --design q3 --dim 4 --problem-dim 4 --output out/dac-q3/dim4
+../.venv/bin/python experiments/dac/run.py synth --design q3 --dim 4 --problem-dim 4 --output out/dac-q3/dim4
+../.venv/bin/python experiments/dac/run.py plot --design q3 --dim 4 --problem-dim 4 --output out/dac-q3/dim4
+../.venv/bin/python experiments/dac/scaling.py out/dac-q3/scaling out/dac-q3/dim2 out/dac-q3/dim4
+```
+
+`runtime.csv` retains individual tile windows. `task-runtime.csv` directly
+measures first request acceptance through final result validity, including
+the result-consumption and next-request edges between tiles. With this driver
+that equals the sum of tile windows plus two cycles per tile boundary.
+It excludes host instruction overhead and any SRAM/DMA or external bandwidth
+cost. Inputs are continuously available. The scaling script reassembles A/B/C
+and all expected output matrices and requires an identical global-task hash
+across sizes; it writes `scaling.csv`, `sources.json`, and PDF/SVG/PNG figures.
+
+The unchanged 2×2 areas can be reused from Q1 with their source paths/hashes
+recorded in `baseline-reuse.json`; the new fixed-global-task vectors and RTL
+cycles must still be measured at both sizes. Parameter choices 8/16 enable
+future experiments; they are not a claim of completed validation. All reported
+areas remain native SKY130 synthesis results, without timing or node scaling.

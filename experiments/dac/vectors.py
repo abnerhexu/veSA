@@ -26,7 +26,30 @@ def e4m3(bits):
     return math.nan if special else math.ldexp(sig, exp-frac)
 
 
-def generate(path):
+def tiled_cases(dim, problem_dim):
+    """Identical global tasks at each array size; only output tiling changes."""
+    rng = random.Random(2899)
+    finite = [x for x in range(256) if x & 127 != 127]
+    cases = []
+    for k in (1, 31, 32, 33, 65, 64, 128, 256):
+        a = rng.choices(finite, k=problem_dim*k)
+        b = rng.choices(finite, k=problem_dim*k)
+        c = [([0x3f800000, 0xbf800000, 0x35800000, 0])[i % 4] for i in range(problem_dim**2)]
+        cases.append((f"gemm_k{k}" if k in (64, 128, 256) else f"tail_k{k}", k, a, b, c))
+    cases.append(("special", 1, ([0x80, 0, 0x7f, 0x7e] * problem_dim)[:problem_dim],
+                  ([0x38, 0xb8, 1, 0xfe] * problem_dim)[:problem_dim], [0x80000000]*problem_dim**2))
+    tiled = []
+    for name, k, a, b, c in cases:
+        for row in range(0, problem_dim, dim):
+            for col in range(0, problem_dim, dim):
+                tiled.append((f"{name}_tile{row}_{col}", k,
+                              a[row*k:(row+dim)*k],
+                              [b[t*problem_dim+j] for t in range(k) for j in range(col, col+dim)],
+                              [c[r*problem_dim+j] for r in range(row, row+dim) for j in range(col, col+dim)]))
+    return tiled
+
+
+def generate(path, dim=2, problem_dim=None):
     import torch
     from mmasim.arithmetic.fdpa import MMA_T_FDPA
     torch.set_num_threads(1)
@@ -53,14 +76,16 @@ def generate(path):
         a = rng.choices(finite, k=2*k)
         b = rng.choices(finite, k=2*k)
         cases.append((f"gemm_k{k}", k, a, b, [0x3f800000, 0xbf800000, 0x35800000, 0]))
+    if problem_dim is not None:
+        cases = tiled_cases(dim, problem_dim)
     oracles = {arch: MMA_T_FDPA(f, rho, 32, -133) for arch, f, rho in
                [("blackwell", 25, "RZ-FP32"), ("hopper", 13, "RZ-E8M13")]}
-    output = ["# name k A_row_major B_row_major C IEEE_RNE Blackwell Hopper; seed=2899"]
+    output = [f"# name k A_row_major B_row_major C IEEE_RNE Blackwell Hopper; seed=2899; array_dim={dim}; problem_dim={problem_dim or dim}"]
     for name, k, a, b, c in cases:
         results = {key: [] for key in ["ieee", "blackwell", "hopper"]}
-        for r in range(2):
-            for col in range(2):
-                av, bv, cv = a[r*k:(r+1)*k], b[col::2], c[2*r+col]
+        for r in range(dim):
+            for col in range(dim):
+                av, bv, cv = a[r*k:(r+1)*k], b[col::dim], c[dim*r+col]
                 acc = f32(cv)
                 for ai, bi in zip(av, bv):
                     acc = fma(e4m3(ai), e4m3(bi), acc)
@@ -82,4 +107,5 @@ def generate(path):
 
 
 if __name__ == "__main__":
-    generate(sys.argv[1])
+    generate(sys.argv[1], int(sys.argv[2]) if len(sys.argv) > 2 else 2,
+             int(sys.argv[3]) if len(sys.argv) > 3 else None)

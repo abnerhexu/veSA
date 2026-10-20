@@ -1,0 +1,10 @@
+design,K,memory_scope,status,dynamic_power_w,leakage_power_w,energy_j,method
+ieee,64,core-only,unmeasured,,,,
+ieee,128,core-only,unmeasured,,,,
+ieee,256,core-only,unmeasured,,,,
+hopper-reuse-overlap,64,core-only,unmeasured,,,,
+hopper-reuse-overlap,128,core-only,unmeasured,,,,
+hopper-reuse-overlap,256,core-only,unmeasured,,,,
+blackwell-reuse-overlap,64,core-only,unmeasured,,,,
+blackwell-reuse-overlap,128,core-only,unmeasured,,,,
+blackwell-reuse-overlap,256,core-only,unmeasured,,,,

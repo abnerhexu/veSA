@@ -33,13 +33,21 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("stage", choices=("all", "vectors", "rtl", "simulate", "synth", "plot"))
     p.add_argument("--output", type=Path)
-    p.add_argument("--design", choices=(*DESIGNS, "overlap", "reuse"), help="Select one design, or an overlap/reuse pair")
+    p.add_argument("--design", choices=(*DESIGNS, "overlap", "reuse", "q3"), help="Select one design, an overlap/reuse pair, or IEEE and both reuse designs")
+    p.add_argument("--dim", type=int, choices=(2, 4, 8, 16), default=2)
+    p.add_argument("--problem-dim", type=int, choices=(2, 4, 8, 16), help="Fixed global square task, serialized into array-sized output tiles")
     p.add_argument("--suite", type=Path, default=Path("/home/hexu/tool/oss-cad-suite"))
     p.add_argument("--pdk-root", type=Path, default=Path.home() / ".volare")
     args = p.parse_args()
+    if args.dim != 2 and args.problem_dim is None:
+        args.problem_dim = args.dim
+    if args.problem_dim is not None and args.problem_dim < args.dim:
+        p.error("--problem-dim must be at least --dim")
     out = (args.output or ROOT / "out/dac-q1" / datetime.now().strftime("%Y%m%d-%H%M%S")).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    if args.design in ("overlap", "reuse"):
+    if args.design == "q3":
+        designs = ["ieee", "hopper-reuse-overlap", "blackwell-reuse-overlap"]
+    elif args.design in ("overlap", "reuse"):
         designs = [d for d in DESIGNS if d.endswith("-overlap") and (("-reuse-" in d) == (args.design == "reuse"))]
     else:
         designs = [args.design] if args.design else DESIGNS
@@ -48,6 +56,7 @@ def main():
                MAKEFLAGS="-j1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
                TENSORCORE_SIM="verilator", Q1_VECTORS=str(out / "vectors.tsv"), Q1_OUTPUT=str(out),
                Q1_DESIGNS=",".join(designs),
+               Q1_DIM=str(args.dim), Q1_PROBLEM_DIM=str(args.problem_dim or args.dim),
                MPLCONFIGDIR=str(out / "mpl-cache"))
     mill = ["mill", "--no-server", "-j", "1"]
     inputs = [ROOT / "build.mill", ROOT / "integration/dependencies.lock",
@@ -60,7 +69,8 @@ def main():
                 "source_sha256": {str(f.relative_to(ROOT)): sha(f) for f in inputs},
                 "dirty_diff_sha256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(),
                 "pdk_version": PDK_VERSION, "liberty": str(lib), "liberty_sha256": sha(lib),
-                "scope": "2x2 E4M3 core-only; no SRAM/DMA; no STA; native SKY130 area",
+                "scope": f"{args.dim}x{args.dim} E4M3 core-only; no SRAM/DMA; no STA; native SKY130 area",
+                "array_dim": args.dim, "problem_dim": args.problem_dim or args.dim,
                 "memory_limit": "JVM 1536 MiB; Yosys/ABC each 4 GiB virtual address space; serial tasks",
                 "versions": {name: importlib.metadata.version(name) for name in ("torch", "mmasim", "matplotlib")},
                 "yosys_version": subprocess.check_output([str(args.suite / "bin/yosys"), "-V"], text=True).strip()}
@@ -103,15 +113,18 @@ def main():
             raise SystemExit(proc.returncode)
 
     if args.stage in ("all", "vectors"):
-        run("vectors", [sys.executable, ROOT / "experiments/dac/vectors.py", out / "vectors.tsv"])
+        argv = [sys.executable, ROOT / "experiments/dac/vectors.py", out / "vectors.tsv", args.dim]
+        if args.problem_dim is not None:
+            argv.append(args.problem_dim)
+        run("vectors", argv)
         manifest["vectors_sha256"] = sha(out / "vectors.tsv")
         save_manifest()
     if args.stage in ("all", "rtl"):
         for design in designs:
-            run(f"rtl-{design}", mill + ["dac.runMain", "gemmini.dac.GenerateQ1", design, out / f"rtl-{design}"])
+            run(f"rtl-{design}", mill + ["dac.runMain", "gemmini.dac.GenerateQ1", design, out / f"rtl-{design}", args.dim])
     if args.stage in ("all", "simulate"):
         argv = mill + ["dac.test.testOnly", "gemmini.dac.Q1Spec"]
-        if args.design:
+        if args.design and args.design != "q3":
             argv += ["--", "-z", "-overlap" if args.design == "overlap" else args.design]
         run("simulate", argv)
         runtime = []
@@ -120,10 +133,14 @@ def main():
             if path.exists():
                 runtime.extend(csv.DictReader(path.open()))
         write_csv(out / "runtime.csv", runtime)
+        tasks = []
+        for design in designs:
+            tasks.extend(csv.DictReader((out / f"{design}-task-runtime.csv").open()))
+        write_csv(out / "task-runtime.csv", tasks)
     if args.stage in ("all", "synth"):
         for design in designs:
             # Flatten each PE for cross-boundary constant propagation, retain the
-            # four-PE hierarchy for area accounting. No external SRAM in this scope.
+            # PE hierarchy for area accounting. No external SRAM in this scope.
             pe = "OverlapPE" if design.endswith("-overlap") else "IeeeFmaPE" if design == "ieee" else "TensorPE"
             forbidden = "-dont_use sky130_fd_sc_hd__lpflow_*"
             ys = out / f"{design}.ys"
@@ -144,8 +161,8 @@ def main():
             total = stats["design"]["area"]
             pe = "OverlapPE" if design.endswith("-overlap") else "IeeeFmaPE" if design == "ieee" else "TensorPE"
             profile = design.split("-")[0]
-            pe_area = stats["modules"]["\\" + pe]["area"] * 4
-            ppa.append({"design": design, "profile": "e4m3-f32", "rows": 2, "cols": 2,
+            pe_area = stats["modules"]["\\" + pe]["area"] * args.dim**2
+            ppa.append({"design": design, "profile": "e4m3-f32", "rows": args.dim, "cols": args.dim,
                         "L": 32, "F": {"ieee": "", "hopper": 13, "blackwell": 25}[profile],
                         "rho": {"ieee": "RNE-FP32-per-FMA", "hopper": "RZ-E8M13", "blackwell": "RZ-FP32"}[profile],
                         "area_um2": total, "sequential_area_um2": stats["design"]["sequential_area"],

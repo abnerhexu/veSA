@@ -7,11 +7,9 @@ import gemmini.tensorcore._
 /** TensorMesh's 32-term wavefront/block scheduler with IEEE FMA PEs.
   * Copied from the pinned release to keep production code unchanged.
   */
-class IeeeFmaMesh extends Module {
+class IeeeFmaMesh(rows: Int = 2, columns: Int = 2) extends Module {
   private val config = BlackwellConfig()
-  private val rows = 2
-  private val columns = 2
-  val io = IO(new Q1MeshIO)
+  val io = IO(new Q1MeshIO(rows, columns))
   private val idle :: launch :: feed :: drain :: waitResults :: respond :: Nil = Enum(6)
   private val state = RegInit(idle)
   private val remaining = Reg(UInt(16.W))
