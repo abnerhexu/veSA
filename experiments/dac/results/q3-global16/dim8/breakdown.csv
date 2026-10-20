@@ -1,0 +1,7 @@
+design,module_class,area_um2
+ieee,PE arithmetic and local state,1044922.1632
+ieee,mesh control and forwarding,128027.7888000001
+hopper-reuse-overlap,PE arithmetic and local state,2124677.7344
+hopper-reuse-overlap,mesh control and forwarding,105044.49599999981
+blackwell-reuse-overlap,PE arithmetic and local state,2305250.9184
+blackwell-reuse-overlap,mesh control and forwarding,105026.97919999994

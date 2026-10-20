@@ -131,7 +131,8 @@ object dac extends IntegrationChiselModule {
   def moduleDeps = Seq(tensorcore, integrationHardfloat)
   def sources = Task.Sources(moduleDir / os.up / "experiments/dac/scala")
   object test extends ScalaTests with TestModule.ScalaTest {
-    def forkArgs = Seq("-Xmx1536m", "-XX:ActiveProcessorCount=1")
+    // Chiseltest passes Runtime.availableProcessors() explicitly to make -j.
+    def forkArgs = Seq("-Xmx1536m", "-XX:ActiveProcessorCount=4")
     def forkEnv = Task {
       super.forkEnv() ++ Map("PATH" -> (
         (moduleDir / os.up / os.up / "scripts/tensorcore-verilator").toString +

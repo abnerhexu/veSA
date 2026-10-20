@@ -9,6 +9,46 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+
+def plot_array_scaling(output, points, problem):
+    dims = sorted({int(p["array_dim"]) for p in points})
+    ks = sorted({int(p["K"]) for p in points})
+    fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.8), layout="constrained")
+    for design, label, color, marker in [("ieee", "IEEE FMA", "#666666", "o"),
+                                        ("hopper-reuse-overlap", "Hopper reuse", "#D55E00", "s"),
+                                        ("blackwell-reuse-overlap", "Blackwell reuse", "#0072B2", "^")]:
+        rows = sorted([p for p in points if p["design"] == design and p["K"] == "256"], key=lambda p: int(p["array_dim"]))
+        for ax, field in zip(axes, ("operations_per_cycle", "density_ratio_vs_2x2")):
+            ax.plot(dims, [p[field] for p in rows], color=color, marker=marker,
+                    markersize=5 if design == "hopper-reuse-overlap" else 3.5, label=label)
+    for ax, title, ylabel in zip(axes, (f"(a) M=N={problem}, K=256", "(b) Density, K=256"),
+                                 ("Operations / cycle", "Density / same-design 2×2")):
+        ax.set_title(title)
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel("Array dimension")
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(dims, [str(d) for d in dims])
+        ax.set_ylim(bottom=0)
+        ax.grid(axis="y", alpha=.2)
+        ax.set_axisbelow(True)
+    axes[1].axhline(1, color="#888888", linewidth=.6)
+    axes[1].set_ylim(top=1.1*max(p["density_ratio_vs_2x2"] for p in points if p["K"] == "256"))
+    occupancy = [[next(p["effective_mac_slot_fraction"] for p in points
+                       if p["design"] == "blackwell-reuse-overlap" and int(p["array_dim"]) == d and int(p["K"]) == k)
+                  for k in ks] for d in dims]
+    im = axes[2].imshow(occupancy, vmin=0, vmax=1, cmap="cividis", aspect="auto")
+    axes[2].set_title("(c) Blackwell MAC slots")
+    axes[2].set_xticks(range(len(ks)), [str(k) for k in ks], rotation=45)
+    axes[2].set_yticks(range(len(dims)), [str(d) for d in dims])
+    axes[2].set_xlabel("K")
+    axes[2].set_ylabel("Array dimension")
+    fig.colorbar(im, ax=axes[2], fraction=.05, pad=.04)
+    fig.legend(*axes[0].get_legend_handles_labels(), loc="outside lower center", ncol=3, frameon=False, fontsize=7)
+    for suffix in ("pdf", "svg", "png"):
+        fig.savefig(output / f"q3-array-scaling.{suffix}", dpi=300)
+    plt.close(fig)
+
+
 def main(output, directories):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -52,6 +92,7 @@ def main(output, directories):
             m, n, k = (int(row[key]) for key in ("M", "N", "K"))
             area = areas[row["design"]]
             points.append({**row, "area_um2": area, "operations_per_cycle": 2*m*n*k/cycles,
+                           "effective_mac_slot_fraction": m*n*k/(dim*dim*cycles),
                            "operations_per_cycle_per_mm2": 2*m*n*k/cycles/area*1e6})
     assert len({v["global_inputs_and_expected_sha256"] for v in inputs.values()}) == 1
     for p in points:
@@ -68,6 +109,10 @@ def main(output, directories):
         "inputs": inputs}, indent=2) + "\n")
     plt.rcParams.update({"font.size": 8, "axes.spines.top": False, "axes.spines.right": False,
                          "pdf.fonttype": 42, "svg.fonttype": "none"})
+    if len({p["array_dim"] for p in points}) > 2:
+        plot_array_scaling(output, points, problem)
+        print(f"Saved {len(points)} measured points for global M=N={problem}; global input/expected hash: {digest}")
+        return
     fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.7), layout="constrained")
     for design, label, color, marker in [("ieee", "IEEE FMA", "#666666", "o"),
                                         ("hopper-reuse-overlap", "Hopper reuse", "#D55E00", "s"),

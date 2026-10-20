@@ -1,0 +1,14 @@
+{
+  "source_snapshot_commit": "711222a",
+  "sources": {
+    "ppa.csv": {
+      "path": "experiments/dac/results/q3-dim4/ppa.csv",
+      "sha256": "937a8df54e42e2a0a9aa049080b637f45522162a0b5afff85b1812bb46b0af06"
+    },
+    "breakdown.csv": {
+      "path": "experiments/dac/results/q3-dim4/breakdown.csv",
+      "sha256": "a94c3eb38ead4cf62b55f4583bfe71fba7e130a353b982f44694c11871f4876d"
+    }
+  },
+  "scope": "Identical array circuits; only fixed global input corpus changes. Reuse synthesis area, measure all new task cycles."
+}

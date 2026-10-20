@@ -1,0 +1,4 @@
+design,profile,rows,cols,L,F,rho,area_um2,sequential_area_um2,source_node_nm,voltage,temperature_c,memory_scope,frequency_basis,flow_stage,liberty_sha256
+ieee,e4m3-f32,4,4,32,,RNE-FP32-per-FMA,293521.5104,44712.8832,130,1.8,25,core-only,not-assumed,post-synthesis,8e78e14442062dba34d414fca6490b2f6b96038d4510d1438ca44fee31487135
+hopper-reuse-overlap,e4m3-f32,4,4,32,13,RZ-E8M13,557281.9776,344920.8064,130,1.8,25,core-only,not-assumed,post-synthesis,8e78e14442062dba34d414fca6490b2f6b96038d4510d1438ca44fee31487135
+blackwell-reuse-overlap,e4m3-f32,4,4,32,25,RZ-FP32,605408.1344,350686.336,130,1.8,25,core-only,not-assumed,post-synthesis,8e78e14442062dba34d414fca6490b2f6b96038d4510d1438ca44fee31487135

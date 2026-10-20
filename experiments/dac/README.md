@@ -91,8 +91,12 @@ netlists, `ppa.csv`, `runtime.csv`, `breakdown.csv`, `summary.csv` and PDF/SVG/
 Each invocation keeps its own numbered manifest. Failed commands remain in `runs.csv`; rerunning a stage
 adds a new log instead of deleting the earlier failure.
 
-All heavy tasks run sequentially. Test JVMs are limited to 1536 MiB and one
-active processor; native builds use `-j1`. Yosys and its ABC child each inherit
+All heavy tasks run sequentially. Test JVMs are limited to 1536 MiB; Mill workers
+report one active processor. New DAC test JVMs report four processors because
+Chiseltest explicitly passes `Runtime.availableProcessors()` to `make -j`;
+`MAKEFLAGS` alone cannot override that argument. New native builds use `-j4` following the user's instruction
+during the global-16 sweep. Earlier invocations retain `-j1`, including the
+already-running 16×16 simulation. Yosys and its ABC child each inherit
 a 4 GiB virtual-address-space limit. `/usr/bin/time -v` reports maximum process
 RSS per command; that metric is not the sum of all concurrently resident worker
 processes. No VCD is emitted in the first area/cycle batch.
@@ -164,6 +168,41 @@ across sizes; it writes `scaling.csv`, `sources.json`, and PDF/SVG/PNG figures.
 
 The unchanged 2×2 areas can be reused from Q1 with their source paths/hashes
 recorded in `baseline-reuse.json`; the new fixed-global-task vectors and RTL
-cycles must still be measured at both sizes. Parameter choices 8/16 enable
-future experiments; they are not a claim of completed validation. All reported
+cycles must still be measured at both sizes. The first fixed-global-4×4 batch
+validated only dimensions 2/4; the global-16 sweep below extends this to 8/16. All reported
 areas remain native SKY130 synthesis results, without timing or node scaling.
+
+## Q3: global 16×16 sweep
+
+The next corpus covers K=32/64/128/256/512 for performance plus K=1/31/33/65
+and special values for correctness. Generate and author-check full global
+matrices once, then slice their inputs and all three expected output matrices
+for smaller arrays:
+
+```sh
+../.venv/bin/python experiments/dac/run.py vectors --design q3 --dim 16 --problem-dim 16 --output out/dac-q3-global16/dim16
+../.venv/bin/python experiments/dac/run.py vectors --design q3 --dim 2 --problem-dim 16 --vectors-source out/dac-q3-global16/dim16/vectors.tsv --output out/dac-q3-global16/dim2
+```
+
+Repeat the second command for dimensions 4 and 8. `--vectors-source` records the
+checked source path and SHA256 in that invocation's manifest. The scaling
+script still checks equality of all reassembled global inputs/expected outputs.
+The first fixed-global-4×4 snapshots retain their original corpus and results;
+the expanded corpus belongs to this new batch.
+
+Run `simulate` for each size with `--design q3 --dim D --problem-dim 16` and
+the corresponding output directory. Reuse the measured 2×2/4×4 `ppa.csv` and
+`breakdown.csv` with a `baseline-reuse.json`; generate RTL and synthesize only
+8×8/16×16. Execute every stage serially. Generate the figure using:
+
+```sh
+MPLCONFIGDIR=out/dac-q3-global16/scaling/mpl-cache ../.venv/bin/python experiments/dac/scaling.py out/dac-q3-global16/scaling out/dac-q3-global16/dim2 out/dac-q3-global16/dim4 out/dac-q3-global16/dim8 out/dac-q3-global16/dim16
+```
+
+For more than two sizes, the script plots operations/cycle and normalized
+throughput density versus array dimension at K=256, plus a Blackwell MAC-slot
+occupancy heatmap across all performance K values. Occupancy is
+`global_M * global_N * K / (array_dim² * task_cycles)`: one useful accumulated
+product per PE/cycle is the denominator. Products recomputed during collection
+do not count as additional useful MACs. This is a core scheduling metric with
+unlimited input availability, excluding SRAM, host and clock feasibility.

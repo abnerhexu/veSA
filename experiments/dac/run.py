@@ -1,4 +1,4 @@
-"""Serial, memory-bounded Q1 area and cycle experiments; no P&R/STA."""
+"""Serial, memory-bounded DAC core area and cycle experiments; no P&R/STA."""
 import argparse
 import csv
 from datetime import datetime, timezone
@@ -36,6 +36,7 @@ def main():
     p.add_argument("--design", choices=(*DESIGNS, "overlap", "reuse", "q3"), help="Select one design, an overlap/reuse pair, or IEEE and both reuse designs")
     p.add_argument("--dim", type=int, choices=(2, 4, 8, 16), default=2)
     p.add_argument("--problem-dim", type=int, choices=(2, 4, 8, 16), help="Fixed global square task, serialized into array-sized output tiles")
+    p.add_argument("--vectors-source", type=Path, help="Retile already checked full global matrices, without repeating CPU oracle runs")
     p.add_argument("--suite", type=Path, default=Path("/home/hexu/tool/oss-cad-suite"))
     p.add_argument("--pdk-root", type=Path, default=Path.home() / ".volare")
     args = p.parse_args()
@@ -53,7 +54,7 @@ def main():
         designs = [args.design] if args.design else DESIGNS
     lib = args.pdk_root / "volare/sky130/versions" / PDK_VERSION / "sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib"
     env = dict(os.environ, JAVA_TOOL_OPTIONS="-Xmx1536m -XX:ActiveProcessorCount=1",
-               MAKEFLAGS="-j1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
+               MAKEFLAGS="-j4", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
                TENSORCORE_SIM="verilator", Q1_VECTORS=str(out / "vectors.tsv"), Q1_OUTPUT=str(out),
                Q1_DESIGNS=",".join(designs),
                Q1_DIM=str(args.dim), Q1_PROBLEM_DIM=str(args.problem_dim or args.dim),
@@ -72,6 +73,8 @@ def main():
                 "scope": f"{args.dim}x{args.dim} E4M3 core-only; no SRAM/DMA; no STA; native SKY130 area",
                 "array_dim": args.dim, "problem_dim": args.problem_dim or args.dim,
                 "memory_limit": "JVM 1536 MiB; Yosys/ABC each 4 GiB virtual address space; serial tasks",
+                "native_make_jobs": 4,
+                "test_active_processors": 4,
                 "versions": {name: importlib.metadata.version(name) for name in ("torch", "mmasim", "matplotlib")},
                 "yosys_version": subprocess.check_output([str(args.suite / "bin/yosys"), "-V"], text=True).strip()}
     runs_path = out / "runs.csv"
@@ -79,6 +82,9 @@ def main():
     manifest_name = f"manifest-{len(runs):02d}.json"
     if (out / "vectors.tsv").exists():
         manifest["vectors_sha256"] = sha(out / "vectors.tsv")
+    if args.vectors_source is not None:
+        args.vectors_source = args.vectors_source.resolve()
+        manifest["vectors_source"] = {"path": str(args.vectors_source), "sha256": sha(args.vectors_source)}
     def save_manifest():
         payload = json.dumps(manifest, indent=2) + "\n"
         (out / manifest_name).write_text(payload)
@@ -116,6 +122,8 @@ def main():
         argv = [sys.executable, ROOT / "experiments/dac/vectors.py", out / "vectors.tsv", args.dim]
         if args.problem_dim is not None:
             argv.append(args.problem_dim)
+        if args.vectors_source is not None:
+            argv += ["--source", args.vectors_source]
         run("vectors", argv)
         manifest["vectors_sha256"] = sha(out / "vectors.tsv")
         save_manifest()

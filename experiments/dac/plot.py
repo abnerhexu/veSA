@@ -70,7 +70,7 @@ def main(directory):
     axes[2].set_title("(c) Throughput density")
     for ax in axes[1:]:
         ax.set_xlabel(f"K (M=N={m})")
-        ax.set_xticks([64, 128, 256])
+        ax.set_xticks(sorted({int(r["K"]) for r in runtime}))
         ax.set_ylim(bottom=0)
     for ax in axes:
         ax.grid(axis="y", alpha=.2)

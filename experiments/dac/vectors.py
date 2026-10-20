@@ -1,5 +1,6 @@
 """Small Q1 corpus: fixed release cases plus K=64/128/256 throughput tasks."""
 import ctypes
+import argparse
 import math
 from pathlib import Path
 import random
@@ -31,11 +32,11 @@ def tiled_cases(dim, problem_dim):
     rng = random.Random(2899)
     finite = [x for x in range(256) if x & 127 != 127]
     cases = []
-    for k in (1, 31, 32, 33, 65, 64, 128, 256):
+    for k in (1, 31, 32, 33, 65, 64, 128, 256, 512):
         a = rng.choices(finite, k=problem_dim*k)
         b = rng.choices(finite, k=problem_dim*k)
         c = [([0x3f800000, 0xbf800000, 0x35800000, 0])[i % 4] for i in range(problem_dim**2)]
-        cases.append((f"gemm_k{k}" if k in (64, 128, 256) else f"tail_k{k}", k, a, b, c))
+        cases.append((f"gemm_k{k}" if k in (32, 64, 128, 256, 512) else f"tail_k{k}", k, a, b, c))
     cases.append(("special", 1, ([0x80, 0, 0x7f, 0x7e] * problem_dim)[:problem_dim],
                   ([0x38, 0xb8, 1, 0xfe] * problem_dim)[:problem_dim], [0x80000000]*problem_dim**2))
     tiled = []
@@ -49,7 +50,31 @@ def tiled_cases(dim, problem_dim):
     return tiled
 
 
-def generate(path, dim=2, problem_dim=None):
+def retile(source, path, dim, problem_dim):
+    output = [f"# Retiled author-checked global corpus; array_dim={dim}; problem_dim={problem_dim}; source={source}"]
+    count = 0
+    for line in Path(source).read_text().splitlines():
+        if line.startswith("#"):
+            continue
+        v = line.split()
+        name, k = v[0].removesuffix("_tile0_0"), int(v[1])
+        arrays = [[int(x, 16) for x in field.split(",")] for field in v[2:]]
+        assert v[0].endswith("_tile0_0") and len(arrays[2]) == problem_dim**2
+        for row in range(0, problem_dim, dim):
+            for col in range(0, problem_dim, dim):
+                tile = [arrays[0][row*k:(row+dim)*k],
+                        [arrays[1][t*problem_dim+j] for t in range(k) for j in range(col, col+dim)]]
+                for field in arrays[2:]:
+                    tile.append([field[r*problem_dim+j] for r in range(row, row+dim) for j in range(col, col+dim)])
+                output.append(" ".join([f"{name}_tile{row}_{col}", str(k)] + [",".join(f"{x:x}" for x in field) for field in tile]))
+                count += 1
+    Path(path).write_text("\n".join(output) + "\n")
+    print(f"Retiled {count} matrices from the checked global corpus; no repeated author-model execution")
+
+
+def generate(path, dim=2, problem_dim=None, source=None):
+    if source is not None:
+        return retile(source, path, dim, problem_dim)
     import torch
     from mmasim.arithmetic.fdpa import MMA_T_FDPA
     torch.set_num_threads(1)
@@ -107,5 +132,10 @@ def generate(path, dim=2, problem_dim=None):
 
 
 if __name__ == "__main__":
-    generate(sys.argv[1], int(sys.argv[2]) if len(sys.argv) > 2 else 2,
-             int(sys.argv[3]) if len(sys.argv) > 3 else None)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("dim", type=int, nargs="?", default=2)
+    parser.add_argument("problem_dim", type=int, nargs="?")
+    parser.add_argument("--source", type=Path, help="Retile a checked corpus containing one full-size tile per global task")
+    args = parser.parse_args()
+    generate(args.output, args.dim, args.problem_dim, args.source)

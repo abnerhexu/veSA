@@ -1,0 +1,3 @@
+run_id,stage,status,seconds,max_rss_kib,exit_code,log,command,manifest
+dim4-00,vectors,passed,0.363,42548,0,00-vectors.log,"[""/home/hexu/proj/veSA/.venv/bin/python"", ""/home/hexu/proj/veSA/veSA/experiments/dac/vectors.py"", ""/home/hexu/proj/veSA/veSA/out/dac-q3-global16/dim4/vectors.tsv"", ""4"", ""16"", ""--source"", ""/home/hexu/proj/veSA/veSA/out/dac-q3-global16/dim16/vectors.tsv""]",manifest-00.json
+dim4-01,simulate,passed,36.492,776856,0,01-simulate.log,"[""mill"", ""--no-server"", ""-j"", ""1"", ""dac.test.testOnly"", ""gemmini.dac.Q1Spec""]",manifest-01.json

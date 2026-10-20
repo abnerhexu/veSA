@@ -1,0 +1,33 @@
+{
+  "script_sha256": "93716c7fbf937dbb7cb1fc5c7fca8a9e0386d79f56fb6d3ccec981b03d18b7b4",
+  "inputs": {
+    "out/dac-q3-global16/dim2": {
+      "global_inputs_and_expected_sha256": "2e28c45995818e3dbb0baebdbd1118640a7eeccca17463aede5abd3cce32d570",
+      "vectors_sha256": "4c30d1719b9b3d576d113ba2fae38bc92f11528de73800345bba8205da21200b",
+      "ppa_sha256": "cf98dd89ead836d765ead185b30955b16f85dfa7dc9cd3c0197018b8b2967873",
+      "task_runtime_sha256": "38422dfdc3f77b6cda883ecb14d3633b1f24d0a00537d815755a18716c7b0cd2",
+      "manifest": "out/dac-q3-global16/dim2/manifest.json"
+    },
+    "out/dac-q3-global16/dim4": {
+      "global_inputs_and_expected_sha256": "2e28c45995818e3dbb0baebdbd1118640a7eeccca17463aede5abd3cce32d570",
+      "vectors_sha256": "6666191ec7f7aa505e9d441a8c875f509830c93a33dc3769f22a47a6c5d545e6",
+      "ppa_sha256": "937a8df54e42e2a0a9aa049080b637f45522162a0b5afff85b1812bb46b0af06",
+      "task_runtime_sha256": "0f1b8bf024f9193136cb0bb3836120977339a50381ce90bd0ba30fb0294b2b67",
+      "manifest": "out/dac-q3-global16/dim4/manifest.json"
+    },
+    "out/dac-q3-global16/dim8": {
+      "global_inputs_and_expected_sha256": "2e28c45995818e3dbb0baebdbd1118640a7eeccca17463aede5abd3cce32d570",
+      "vectors_sha256": "4b0d44584af36d3b895d78dbe9bc7c124897ec1c051b53b8aef7696891e4ad64",
+      "ppa_sha256": "d9bab199a9f689a64fab20c4119f6a7ece44f6b5b456e61bd5e7f74bd9b313e6",
+      "task_runtime_sha256": "b9de107a20dd0dfe47b6d07e9419d9e90608990413c0871b7bd602aaf1f9771c",
+      "manifest": "out/dac-q3-global16/dim8/manifest.json"
+    },
+    "out/dac-q3-global16/dim16": {
+      "global_inputs_and_expected_sha256": "2e28c45995818e3dbb0baebdbd1118640a7eeccca17463aede5abd3cce32d570",
+      "vectors_sha256": "e1621aed99ed740628e9ffbe48a0cce97f96227f37be575d86645f7da54bac28",
+      "ppa_sha256": "61d5d044753535f81f541e793cb09a3ae856d05d80d46736b50949d37d77124a",
+      "task_runtime_sha256": "fb668425b86867bdda327d2f86ee3d3cd80e072492673bd374963d9945469d65",
+      "manifest": "out/dac-q3-global16/dim16/manifest.json"
+    }
+  }
+}
