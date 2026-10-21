@@ -1,7 +1,7 @@
 {
-  "schema": 1,
-  "release": "blackwell-v1",
-  "source_base": "d3a836c1ae0a273a40f941f5f1c8c93051ea306a",
+  "schema": 2,
+  "release": "blackwell-ws-v2",
+  "source_base": "75c0a97c4040a7d6fac8c9d7d4bd7768d52bf8d7",
   "frozen_paths": [
     "src/main/scala", "src/test/scala/gemmini/tensorcore", "integration/src",
     "build.mill", "integration/dependencies.lock",
@@ -12,7 +12,13 @@
     "dimension": 2, "xlen": 64, "privilege": "machine", "virtual_memory": false,
     "internal_sram": true, "scratchpad_single_ported": true,
     "accumulator_single_ported": false, "clock_gated": false,
-    "inflight_tasks": 1, "tilelink_beat_bytes": 8
+    "inflight_tasks": 1, "tilelink_beat_bytes": 8,
+    "tensor_dataflow": "weight-stationary-two-wave",
+    "logical_output_dimension": 2,
+    "physical_k_depth": "fusion-length",
+    "exponent_path_bits": 9,
+    "weight_banks_per_pe": 2,
+    "input_product_lanes_per_pe": 1
   },
   "profiles": {
     "e4m3-f32": {"fusion": 32, "fractional_bits": 25, "rounding": "RZ-FP32", "pe_vectors": 55, "matrices": 12},

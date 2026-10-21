@@ -69,7 +69,7 @@ def fixture_counts(base):
 
 
 def preflight(manifest):
-    require(manifest["schema"] == 1, "Unsupported manifest schema")
+    require(manifest["schema"] == 2, "Unsupported manifest schema")
     require(sys.flags.optimize == 0 and not os.environ.get("PYTHONOPTIMIZE"),
             "Python optimization disables assertions in the pinned author validators")
     verify_hashes(ROOT, manifest["sha256"])
@@ -161,6 +161,7 @@ def commands(stage, run_dir, manifest):
     if stage == "core":
         return [scala(name, count) for name, count in (
             ("BuildSmokeSpec", 1), ("TensorPESpec", 7), ("TensorMeshSpec", 7),
+            ("TensorWSMeshSpec", 1), ("TensorWSStructureSpec", 2),
             ("GroupedFrontendSpec", 2), ("GroupedPESpec", 2), ("GroupedMeshSpec", 2))]
     if stage == "memory":
         return [scala(name, count) for name, count in (

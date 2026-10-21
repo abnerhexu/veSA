@@ -1,21 +1,22 @@
-# Blackwell v1 behavioral release
+# Blackwell weight-stationary v2 behavioral release
 
-Blackwell v1 has passed the numerical/system acceptance gates for the exact
-scope below. The final acceptance/release-commit record lives in the parent
-repository at `docs/progress/2026-10-19-08-blackwell-release.md`. A successful
-preflight or one profile alone is not sufficient to reproduce that conclusion.
+Blackwell WS v2 has passed the numerical/system acceptance gates for the exact
+scope below. It replaces the historical v1 production Tensor mesh, whose
+output-stationary PE-local collect/replay structure did not satisfy the target
+systolic dataflow. A successful preflight or one profile alone is not sufficient
+to reproduce this conclusion. The parent repository records the final evidence.
 
 The implemented arithmetic matches the two project papers and MMA-Sim 2.0.3
 on the recorded bit-exact CPU/RTL tests. This is **not** a differential test
 against a local NVIDIA GPU, NVIDIA instruction compatibility, or a claim about
 NVIDIA timing, throughput or physical microarchitecture.
 
-## Frozen first-release scope
+## Frozen v2 scope
 
 The machine-readable specification and hashes are in
 [blackwell-release.json](blackwell-release.json). The validated implementation
-base is `d3a836c1ae0a273a40f941f5f1c8c93051ea306a`. P6 adds release tooling and
-documentation without changing that implementation, build graph or tests.
+base is `75c0a97c4040a7d6fac8c9d7d4bd7768d52bf8d7`. The release commit adds
+only the v2 manifest, checker updates and acceptance documentation.
 Its final release commit is also recorded in the parent's acceptance
 record/gitlink; the manifest does not attempt to embed its own commit hash.
 
@@ -34,12 +35,21 @@ the rounded D becomes the next block's C. FP4 requires a positive multiple of
 64 and computes exact 16-element groups, without rounding at scale boundaries.
 FP32 is an accumulation/output interface only, not an A/B multiply path.
 
-The released integration is `TensorCoreConfigs.blackwell(profile)` with a
-2x2 output-stationary array, RV64 machine mode, ungated clock, internal SRAM,
+The released integration is `TensorCoreConfigs.blackwell(profile)` with a 2x2
+logical output tile backed by a `fusionLength x 2` weight-stationary Tensor
+array, RV64 machine mode, ungated clock, internal SRAM,
 four single-port scratchpad banks of 256 rows and two dual-port accumulator
 banks of 16 rows. One task owns the memory at a time. The tested system uses
 64-bit TileLink beats and real Gemmini MVIN/MVOUT, DMA, ROB and controllers.
 The CPU-facing interface is injected RoCC, not CPU instruction execution.
+
+Each physical PE has two stationary B/scale banks, a 9-bit signed exponent
+lane and one input-product lane. A is retained only in two left-edge banks and
+is sent once for the exponent wave and once for the significand wave. A narrow
+fusionLength-deep FIFO returns e_max to the column top. The next segment's
+exponent wave may overlap the current segment's replay. NVFP4 group-boundary
+PEs additionally contain two auxiliary scale-significand multipliers, reported
+separately from the single input-product lane.
 
 Operate on complete 2x2 output tiles; no partial-M/N masking or automatic
 large-matrix scheduling is supplied. K is encoded in 16 bits and must also fit
@@ -98,18 +108,16 @@ No paper/model conflict remains unresolved within the declared profile scope.
 
 | Gate | Accepted evidence |
 | --- | --- |
-| Integer reference and pinned author | P6 rerun: 11 directed tests, 1,050,000 unscaled + 1,000,000 grouped dots |
-| Frozen fixtures | P6 rerun: 7000 + 2000 differential dots, all four exported files byte-identical |
-| Standalone PE / mesh / group frontend | P4 passed all nine profiles, 1267 PE vectors and 96 matrices; six arithmetic modules and five corresponding tests are unchanged from `0d2d027` |
-| Production storage / command isolation | P6 rerun: 13 tests including real masked/RMW storage, ownership, drain/fence and reset |
-| Real Gemmini system | P6 rerun: complete source compile, enabled/default-off RTL, all nine profiles and 96 matrices through real RoCC/MVIN/MVOUT |
-| Release runner | P6 rerun: eight standard-library tests, including failed commands, wrong/zero test counts and exclusive locking |
+| Integer reference and pinned author | v2 release rerun: 11 directed tests, 1,050,000 unscaled + 1,000,000 grouped dots |
+| Frozen fixtures | v2 release rerun: 7000 + 2000 differential dots, all four exported files byte-identical |
+| Standalone arithmetic / WS mesh | All nine profiles, 1267 scalar vectors, 96 matrices, double-bank overlap and two structural tests |
+| Production storage / command isolation | v2 release rerun: 13 tests including real masked/RMW storage, ownership, drain/fence and reset |
+| Real Gemmini system | v2 release rerun: complete source compile, enabled/default-off RTL, all nine profiles and 96 matrices through real RoCC/MVIN/MVOUT |
+| Release runner | Eight standard-library tests, including failed commands, wrong/zero test counts and exclusive locking |
 
-The standalone core evidence commit in the table is
-`0d2d027c195095ec13218e62a692a336b85a9c65`; see the parent progress record for
-the complete source-identity check and historical results. P6 deliberately
-reuses that unchanged-core evidence; it did not rerun the `core` or `all`
-commands. This is distinct from the fresh P6 system and CPU runs above.
+The old OS release commits remain in history for comparison. Their test results
+do not substitute for the v2 runs above; the v2 release runner checks the WS
+implementation base directly.
 
 ## Reproduce serially
 
@@ -139,8 +147,9 @@ grouped random dots against the author model, regenerates all four TSV files
 under a new ignored output directory and demands byte-for-byte hash equality.
 It never replaces the checked-in golden vectors. `cpu` checks 1,050,000 unscaled
 and 1,000,000 grouped dots (seeds 776/2899), in bounded single-threaded batches.
-`core` covers PE/mesh/group-frontend handshakes and arithmetic for all nine
-profiles. `memory` covers width contracts, masked legacy RMW, accepted-read
+`core` covers scalar arithmetic fixtures, WS mesh/group handshakes, double-bank
+overlap, structural PE/lane counts and arithmetic for all nine profiles.
+`memory` covers width contracts, masked legacy RMW, accepted-read
 ownership, late writes, drain/fence, reset and isolation. `integration` performs
 full real-source compilation, enabled/default-off RTL generation, and nine
 separate real RoCC/DMA profile simulations, including E4M3 control scenarios.
@@ -162,14 +171,14 @@ All inputs are rechecked after a run. The runner refuses altered production
 sources, fixtures, author files or upstream checkouts; docs-only changes are
 allowed. It does not install dependencies, fetch, commit, tag, push or branch.
 
-An individual `passed` result means that stage passed, not all of P6. The
+An individual `passed` result means that stage passed, not the whole v2 gate. The
 acceptance record explicitly distinguishes fresh runs from earlier evidence
 whose source/vector identity was preserved. Raw logs/generated RTL stay ignored;
 the parent progress record preserves the reviewable outcome and release commit.
 
 ## Blackwell-to-Hopper handoff
 
-P6 must pass and have a fixed Blackwell release commit before creating
+The complete v2 gate must pass and have a fixed Blackwell release commit before creating
 `tensorcore/hopper`. Keep the Blackwell branch and fixtures reproducible.
 Hopper FP8 changes both F=13 and block-end RZ-E8M13 for FP32 output; changing
 only F is insufficient. FP16/BF16 keep the specified behavior, and Hopper must

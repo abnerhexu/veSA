@@ -15,7 +15,7 @@ This document is intended to provide information for beginners wanting to try ou
 ## veSA Blackwell behavioral backend
 
 This fork adds an optional low-precision Tensor backend. For its nine supported
-arithmetic profiles, first-release 2x2 configuration, private RoCC ABI and
+arithmetic profiles, 2x2 output-tile weight-stationary configuration, private RoCC ABI and
 CPU-only/RTL acceptance workflow, start with the
 [Blackwell release specification](integration/BLACKWELL_RELEASE.md).
 It does not add FP32/TF32/FP64 A/B inputs or NVIDIA instruction/timing
