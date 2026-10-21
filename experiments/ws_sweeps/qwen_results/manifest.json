@@ -1,0 +1,84 @@
+{
+  "base_commit": "f197fdfc52118d654740ac747134e207bf0483e7",
+  "weights": {
+    "file": "model.safetensors-00001-of-00001.safetensors",
+    "bytes": 1746942600,
+    "sha256": "04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696",
+    "metadata": {}
+  },
+  "seed": 20261021,
+  "M": 16,
+  "N": 16,
+  "K": [
+    16,
+    32,
+    64,
+    128,
+    256
+  ],
+  "systolic_array": "16x16",
+  "panels": [
+    {
+      "name": "model.language_model.layers.0.linear_attn.in_proj_qkv.weight",
+      "dtype": "BF16",
+      "shape": [
+        6144,
+        1024
+      ],
+      "row_start": 2496,
+      "column_start": 0
+    },
+    {
+      "name": "model.language_model.layers.0.mlp.down_proj.weight",
+      "dtype": "BF16",
+      "shape": [
+        1024,
+        3584
+      ],
+      "row_start": 800,
+      "column_start": 512
+    },
+    {
+      "name": "model.language_model.layers.11.self_attn.q_proj.weight",
+      "dtype": "BF16",
+      "shape": [
+        4096,
+        1024
+      ],
+      "row_start": 752,
+      "column_start": 512
+    },
+    {
+      "name": "model.language_model.layers.23.mlp.up_proj.weight",
+      "dtype": "BF16",
+      "shape": [
+        3584,
+        1024
+      ],
+      "row_start": 96,
+      "column_start": 256
+    }
+  ],
+  "activation_policy": "seeded N(0,1), clipped to [-6,6]; shared 16x256 panel prefixes",
+  "c_policy": "seeded signed N(0,1) scaled by sqrt(K)*sample_std(weight panel)",
+  "fp8_quantization": "nearest finite E4M3; numeric ties choose lower value",
+  "mxfp4_quantization": "E2M1 with per-row/per-column 32-value E8M0 ceil scale",
+  "nvfp4_quantization": "E2M1 with per-row/per-column 16-value UE4M3 ceil scale",
+  "short_fp4_K": "K<64 is zero-padded to one Blackwell 64-lane GDFS instruction",
+  "relative_error_denominator": "abs(reference); zero references excluded and counted",
+  "blackwell_reference": "FP8 F=25; FP4 G=6,F=35,GS=16,C-fused",
+  "os_baseline": "exact low-precision product followed by sequential IEEE FP32 RNE FMA",
+  "source_sha256": {
+    "precision_model.py": "fb4776ef672735d5790d9ff4fcf0cf502973b3cbd20d6d367af3b75035e6ebd1",
+    "qwen_corpus.py": "1e98baf6831168a7d5309b2f0ed40cd4b254d363865c9f8006659ed29b6897bc",
+    "run_qwen_precision.py": "bc310a858680b5d5d8adcc4a153b9396aa4ab9cc543abc09ea4196dfaec5c227"
+  },
+  "files": {
+    "fp8_f_sweep.csv": "cd8e8f0ffc607236e2e6f6c639a81c1296c43269b0e9312ada1a9d8622fa960b",
+    "fp4_g_f_sweep.csv": "29d2e77b48aeb0ef3c33b20accf6208d4a009d20b24af06d9b6eec733c3577f5",
+    "fp4_gs_sweep.csv": "4791df7557349f6cc4f7cc5028fbd1464d6708cab489afb3db58ee7b39d77679",
+    "c_coupling_sweep.csv": "5d655c9bd6d892fdf9b4085f3bdbc5b60580f3f6888b9646261897f619cac924",
+    "all_precision_sweeps.csv": "ab4cc256744da64de62e1260aad5f47e0f106ce4adfb8a2473ad9a0e47c63b9e"
+  },
+  "rows": 365
+}

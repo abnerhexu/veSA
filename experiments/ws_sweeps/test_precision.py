@@ -8,7 +8,8 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "modeling/tensorcore"))
 
 from precision_model import (configurable_dot, configurable_fdpa,
-                             configurable_gdfs, fp32_bits, os_dot)
+                             configurable_gdfs, configurable_gdfs_dot,
+                             fp32_bits, os_dot)
 from reference import dot, fdpa
 from grouped_reference import gst_fdpa
 
@@ -19,6 +20,8 @@ class PrecisionSweepModelTests(unittest.TestCase):
         b = [0x39, 0x3a, 0xba, 0x42] * 8
         c = fp32_bits(-0.75)
         self.assertEqual(configurable_fdpa(a, b, c, 25, True), fdpa(a, b, c))
+        self.assertEqual(configurable_dot(a[:16], b[:16], c, 25, True),
+                         dot(a[:16], b[:16], c))
         self.assertEqual(configurable_dot(a * 2, b * 2, c, 25, True),
                          dot(a * 2, b * 2, c))
 
@@ -33,6 +36,29 @@ class PrecisionSweepModelTests(unittest.TestCase):
             self.assertEqual(configurable_gdfs(a, b, c, alpha, beta,
                                                 6, 35, 16, nvfp4),
                              gst_fdpa(a, b, c, alpha, beta, nvfp4))
+
+    def test_short_and_chained_fp4_dot(self):
+        a = [(index * 5) & 15 for index in range(128)]
+        b = [(index * 7 + 3) & 15 for index in range(128)]
+        for nvfp4, neutral, block in ((False, 127, 32), (True, 0x38, 16)):
+            c = fp32_bits(-0.25)
+            short = configurable_gdfs_dot(
+                a[:16], b[:16], c, [neutral], [neutral], 6, 35, 16, nvfp4)
+            padded = configurable_gdfs(
+                a[:16] + [0] * 48, b[:16] + [0] * 48, c,
+                [neutral] * (64 // block), [neutral] * (64 // block),
+                6, 35, 16, nvfp4)
+            self.assertEqual(short, padded)
+            chained = configurable_gdfs_dot(
+                a, b, c, [neutral] * (128 // block),
+                [neutral] * (128 // block), 6, 35, 16, nvfp4)
+            expected = gst_fdpa(a[64:], b[64:],
+                                gst_fdpa(a[:64], b[:64], c,
+                                         [neutral] * (64 // block),
+                                         [neutral] * (64 // block), nvfp4),
+                                [neutral] * (64 // block),
+                                [neutral] * (64 // block), nvfp4)
+            self.assertEqual(chained, expected)
 
     def test_non_power_of_two_groups_cross_scale_blocks(self):
         a = [7 if index % 3 else 15 for index in range(64)]

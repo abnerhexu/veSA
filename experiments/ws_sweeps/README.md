@@ -62,42 +62,68 @@ an unannotated or failed output check must not enter the final CSV.
 
 ## B. Precision sweeps
 
-Run:
+The checked-in `results/` directory is the original synthetic arithmetic stress
+corpus and remains useful for unit-level regression.  The primary experiment is
+now `qwen_results/`, generated from the real BF16 checkpoint supplied outside
+the repository.  Run it with:
 
 ```sh
-python3 -m unittest -v experiments/ws_sweeps/test_precision.py
-python3 experiments/ws_sweeps/run_precision.py \
-  --output experiments/ws_sweeps/results
+../.venv/bin/python -m unittest -v \
+  experiments/ws_sweeps/test_precision.py \
+  experiments/ws_sweeps/test_qwen_corpus.py \
+  experiments/ws_sweeps/test_qwen_outputs.py
+
+../.venv/bin/python experiments/ws_sweeps/run_qwen_precision.py \
+  --weights ../weight/model.safetensors-00001-of-00001.safetensors \
+  --output experiments/ws_sweeps/qwen_results
 ```
 
-The fixed corpus uses four signed 16x16 matrices per point.  FP8 uses K=256 and
-chains 32-element FDA blocks; FP4 uses K=64.  Inputs cover both signs and a broad
-finite exponent range, and C is signed and nonzero.  Every candidate is compared
-against both the Blackwell configuration and an OS arithmetic baseline that
-rounds each exact low-precision product plus accumulator with IEEE FP32 RNE.
+The runner reads only four deterministic 16x256 slices with `numpy.memmap`; it
+does not load the 1.75 GB checkpoint or instantiate the model.  The selected
+language-model panels cover linear attention input projection, MLP down
+projection, standard self-attention Q projection and MLP up projection.  For
+each panel, seeded clipped-N(0,1) activations form A and the checkpoint slice,
+transposed from `[out,in]`, forms B.  C is signed seeded normal data scaled to
+the panel's dot-product magnitude.  Panel names, offsets, checkpoint SHA-256 and
+all generation policies are fixed in `qwen_results/manifest.json`.
+
+Both operands are quantized for every format.  FP8 uses nearest finite E4M3.
+MXFP4 uses E2M1 values and per-row/per-column E8M0 scales over 32 K elements;
+NVFP4 uses E2M1 and UE4M3 scales over 16.  A ceil scale avoids block clipping;
+E2M1 and E4M3 conversion use a deterministic nearest-value rule.  This is a
+documented experiment quantizer, not a claim about NVIDIA's software recipe.
+
+Every structure runs on a logical 16x16 array at K=16, 32, 64, 128 and 256.
+FP8 chains 32-element FDA blocks, with K=16 represented by a short block.  FP4
+uses a 64-element Blackwell GDFS instruction: K=16/32 zero-pad unused lanes,
+while K=128/256 chain rounded FP32 C between instructions.  Each CSV point
+aggregates four matrices, or 1024 outputs.  Every candidate is compared with the
+Blackwell configuration and an OS baseline that rounds every exact
+low-precision product plus FP32 accumulator using IEEE FP32 RNE.
 
 The CSVs report signed mean relative error (bias), mean/max absolute relative
 error, mean absolute error, RMSE and bit-exact fraction.  Relative metrics omit
 zero reference values and report their count explicitly, so positive and
 negative errors cannot silently disappear behind an absolute-only metric.
 
-Generated files:
+Generated Qwen files (365 aggregate rows):
 
-- `fp8_f_sweep.csv`: F=13/16/19/22/25, C-fused E4M3.
+- `fp8_f_sweep.csv`: 25 rows, F=13/16/19/22/25, C-fused E4M3.
 - `fp4_g_f_sweep.csv`: MXFP4/NVFP4, G=3..8 and F=26/29/32/35, GS=16.
 - `fp4_gs_sweep.csv`: GS=12/14/16/18/20 at G=6, F=35.
 - `c_coupling_sweep.csv`: C-fused and C-decoupled at F=6..10.
-- `all_precision_sweeps.csv`: all 73 rows in one table.
+- `all_precision_sweeps.csv`: all 365 rows in one table.
 
-The default corpus shows the intended qualitative effects.  FP8 error falls
-monotonically as F approaches Blackwell F=25.  In FP4, changing F does not repair
-the loss caused by small G; G=6/7/8 is bit-identical to Blackwell for this corpus,
-while G=3 has large error.  GS=16 is the only swept group size that is bit-exact
-to Blackwell because it is the architectural reference point.  C-decoupling
-roughly halves the synthetic relative error over F=6..10 compared with C-fused.
+The Qwen corpus shows FP8 error falling as F approaches Blackwell F=25.  In FP4,
+changing F does not repair information discarded by a small G; G=6/7/8 is
+bit-identical to Blackwell here, while G=3 has the largest error.  All swept GS
+values happen to be bit-identical on these quantized panels at G=6/F=35, so this
+corpus does not establish an accuracy distinction among GS choices.  The
+synthetic stress corpus still exposes GS-dependent arithmetic differences.
+C-decoupling materially reduces low-F error on the Qwen panels.
 
-These arithmetic-error results do not reproduce Kim et al.'s LLM task accuracy
-or their synthesized area/energy numbers.  In particular, their statement that
-G>=4 is iso-accurate is a model-level accuracy result; nonzero pointwise MRE at
-G=4 is compatible with that conclusion.  Hardware cost for G/F/GS and coupling
-is outside the A sweep unless separate parameterized RTL is added later.
+These are MMA output errors over real model weights, not an end-to-end Qwen task
+accuracy evaluation, NVIDIA GPU differential, or reproduction of Kim et al.'s
+synthesized area/energy.  Their G>=4 iso-accuracy statement is model-level;
+nonzero pointwise MRE at G=4 is compatible with it.  Hardware cost for G/F/GS
+and coupling is outside the A sweep unless separate parameterized RTL is added.

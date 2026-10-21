@@ -115,7 +115,7 @@ def configurable_fdpa(a, b, c, fractional_bits, c_fused=True,
 
 def configurable_dot(a, b, c, fractional_bits, c_fused=True,
                      format_name="e4m3", fusion_length=32):
-    assert len(a) == len(b) and len(a) % fusion_length == 0
+    assert len(a) == len(b) and len(a) > 0
     for start in range(0, len(a), fusion_length):
         c = configurable_fdpa(a[start:start + fusion_length],
                               b[start:start + fusion_length], c,
@@ -204,6 +204,39 @@ def configurable_gdfs(a, b, c, alpha, beta, group_bits=6,
                        accumulator.fraction))
     total, power, _ = aligned_sum(groups, fractional_bits)
     return pack(total, power)
+
+
+def configurable_gdfs_dot(a, b, c, alpha, beta, group_bits=6,
+                          fractional_bits=35, group_size=16, nvfp4=False,
+                          fusion_length=64):
+    """Chain 64-way GDFS blocks, zero-padding only the final short block.
+
+    Blackwell exposes a 64-element FP4 instruction.  K=16 and K=32 experiments
+    therefore model unused lanes as exact zero, while K>64 passes the rounded
+    FP32 result of one instruction as C to the next instruction.
+    """
+    assert len(a) == len(b) and len(a) > 0
+    assert fusion_length == 64
+    block = 16 if nvfp4 else 32
+    expected_scales = math.ceil(len(a) / block)
+    assert len(alpha) == len(beta) == expected_scales
+    neutral = 0x38 if nvfp4 else 127
+    for start in range(0, len(a), fusion_length):
+        end = min(start + fusion_length, len(a))
+        chunk_a = list(a[start:end])
+        chunk_b = list(b[start:end])
+        chunk_a.extend([0] * (fusion_length - len(chunk_a)))
+        chunk_b.extend([0] * (fusion_length - len(chunk_b)))
+        scale_start = start // block
+        scale_end = math.ceil(end / block)
+        chunk_alpha = list(alpha[scale_start:scale_end])
+        chunk_beta = list(beta[scale_start:scale_end])
+        scales_per_instruction = fusion_length // block
+        chunk_alpha.extend([neutral] * (scales_per_instruction - len(chunk_alpha)))
+        chunk_beta.extend([neutral] * (scales_per_instruction - len(chunk_beta)))
+        c = configurable_gdfs(chunk_a, chunk_b, c, chunk_alpha, chunk_beta,
+                              group_bits, fractional_bits, group_size, nvfp4)
+    return c
 
 
 def os_fp4_dot(a, b, c, alpha, beta, nvfp4=False):
