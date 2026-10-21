@@ -9,7 +9,10 @@ TileLink RAM; see the progress record for the profiles actually run.
 
 ## Configuration
 
-`GemminiArrayConfig.tensorcore: Option[BlackwellConfig]` defaults to `None`.
+`GemminiArrayConfig.tensorcore: Option[TensorConfig]` defaults to `None`.
+`BlackwellConfig` and the Hopper branch's `HopperConfig` implement this static
+interface; see [Hopper scope](../../integration/HOPPER.md) for its seven
+WGMMA-family profiles and separate regression entry points.
 `Some(profile)` enables the command frontend, engine, raw C/D bridge and bank
 router in the original Controller/Scratchpad. It automatically enables the
 raw ports; `tensorcore_raw_access=true` alone still leaves them tied idle.

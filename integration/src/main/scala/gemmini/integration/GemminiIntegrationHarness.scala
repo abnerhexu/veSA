@@ -25,12 +25,12 @@ object IntegrationParameters {
   * CPU boot, VM page walk or software toolchain is needed for machine-mode
   * command validation; no accelerator component is replaced with a stub.
   */
-class GemminiIntegrationHarness(profile: BlackwellConfig = BlackwellConfig(),
+class GemminiIntegrationHarness(profile: TensorConfig = BlackwellConfig(),
                                 singlePorted: Boolean = false,
                                 tensorEnabled: Boolean = true)
                                (implicit p: Parameters) extends LazyModule {
   java.nio.file.Files.createDirectories(java.nio.file.Paths.get("out"))
-  val config = TensorCoreConfigs.blackwell(profile, singlePortedAccumulator = singlePorted).copy(
+  val config = TensorCoreConfigs.configured(profile, singlePortedAccumulator = singlePorted).copy(
     dma_buswidth = 64, headerFileName = "out/tensorcore-integration-params.h",
     tensorcore = if (tensorEnabled) Some(profile) else None)
   val visibility = TLEphemeralNode()
@@ -103,6 +103,8 @@ object GenerateGemminiIntegration extends App {
     case "e4m3" | "disabled" => BlackwellConfig()
     case "fp16" => BlackwellConfig(TensorFormat.FP16)
     case "nvfp4" => BlackwellConfig.nvfp4
+    case "hopper-e4m3" => HopperConfig()
+    case "hopper-fp16" => HopperConfig(TensorFormat.FP16)
     case _ => throw new IllegalArgumentException("Unsupported integration generation profile")
   }
   implicit val p: Parameters = IntegrationParameters()

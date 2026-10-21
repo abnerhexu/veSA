@@ -6,7 +6,7 @@ import chisel3.util._
 /** GST-FDPA step 1: exact 16-element dots, then scale significands.
   * No FP normalization occurs between the group dot and the fused sum.
   */
-class GroupedDotFrontend(config: BlackwellConfig) extends Module {
+class GroupedDotFrontend(config: TensorConfig) extends Module {
   require(config.grouped)
   val io = IO(new Bundle {
     val start = Input(Bool())

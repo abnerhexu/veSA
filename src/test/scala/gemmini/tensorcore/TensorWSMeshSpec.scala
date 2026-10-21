@@ -4,10 +4,10 @@ import chisel3._
 import chiseltest._
 import org.scalatest.flatspec.AnyFlatSpec
 
-class TensorWSMeshSpec extends AnyFlatSpec with ChiselScalatestTester {
-  "The weight-stationary Tensor mesh" should
+abstract class TensorWSMeshChecks(config: TensorConfig, architecture: String)
+    extends AnyFlatSpec with ChiselScalatestTester {
+  s"The $architecture weight-stationary Tensor mesh" should
     "load a second bank without a bubble and overlap its exponent wave with replay" in {
-    val config = BlackwellConfig(TensorFormat.E4M3)
     test(new TensorMesh(config)).withAnnotations(TensorTestBackend.annotations) { dut =>
       dut.io.req.valid.poke(false.B)
       dut.io.in.valid.poke(false.B)
@@ -50,3 +50,9 @@ class TensorWSMeshSpec extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 }
+
+class TensorWSMeshSpec extends TensorWSMeshChecks(
+  BlackwellConfig(TensorFormat.E4M3), "Blackwell")
+
+class HopperWSMeshSpec extends TensorWSMeshChecks(
+  HopperConfig(TensorFormat.E4M3), "Hopper")

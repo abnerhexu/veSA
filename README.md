@@ -14,6 +14,9 @@ This document is intended to provide information for beginners wanting to try ou
 
 ## veSA Blackwell behavioral backend
 
+On `tensorcore/hopper`, see the [Hopper backend and validation status](integration/HOPPER.md).
+The accepted Blackwell weight-stationary v2 branch/release remains independently reproducible.
+
 This fork adds an optional low-precision Tensor backend. For its nine supported
 arithmetic profiles, 2x2 output-tile weight-stationary configuration, private RoCC ABI and
 CPU-only/RTL acceptance workflow, start with the

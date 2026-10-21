@@ -18,7 +18,9 @@ is recorded in the parent repository under `docs/progress/`.
 
 A and B currently use the same format, selected at elaboration time. FP32 is
 only an accumulator/output format. FP32, TF32 and FP64 operand paths do not
-exist. Hopper is not implemented yet. The first 2x2 internal-SRAM Gemmini
+exist. The Hopper branch adds seven WGMMA-family profiles; see the
+[Hopper specification and current validation scope](../../integration/HOPPER.md).
+The first 2x2 internal-SRAM Gemmini
 RoCC/DMA path is verified; see the [P6 release scope and serial acceptance runner](../../integration/BLACKWELL_RELEASE.md).
 FP4 uses the dedicated GST-FDPA path; it does
 not implement the separate ST-FDPA instruction family or per-tensor NVFP4 alpha.

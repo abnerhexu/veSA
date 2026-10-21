@@ -73,7 +73,7 @@ object TensorArithmetic {
     * magnitude before restoring the sign. This works for F both above and
     * below the internal 23-bit TensorTerm radix.
     */
-  def align(term: TensorTerm, maximum: SInt, config: BlackwellConfig): SInt = {
+  def align(term: TensorTerm, maximum: SInt, config: TensorConfig): SInt = {
     val delta = (maximum - term.exponent).asUInt
     val magnitude = if (config.fractionalBits >= 23) {
       (term.magnitude << (config.fractionalBits - 23)) >> delta
@@ -98,7 +98,7 @@ object TensorArithmetic {
     * exact group sum.
     */
   def scaleGroupMetadata(anyProduct: Bool, alpha: UInt, beta: UInt,
-                         config: BlackwellConfig): TensorTerm = {
+                         config: TensorConfig): TensorTerm = {
     require(config.grouped)
     val nvfp4 = config.blockScale.contains(BlockScale.UE4M3)
     def scale(raw: UInt): (UInt, SInt, Bool) = {
@@ -121,7 +121,7 @@ object TensorArithmetic {
 
   /** Scale one exact 16-element E2M1 group without normalising it. */
   def scaleGroup(quarter: SInt, anyProduct: Bool, alpha: UInt, beta: UInt,
-                 config: BlackwellConfig): TensorTerm = {
+                 config: TensorConfig): TensorTerm = {
     require(config.grouped)
     val nvfp4 = config.blockScale.contains(BlockScale.UE4M3)
     def scale(raw: UInt): (UInt, SInt, Bool) = {
@@ -146,9 +146,12 @@ object TensorArithmetic {
   }
 
   /** Exact fixed-point sum -> RZ-FP32 or RNE-FP16; no intermediate FP rounding. */
-  def pack(sum: SInt, exponent: SInt, fractionalBits: Int, halfOutput: Boolean): UInt = {
+  def pack(sum: SInt, exponent: SInt, fractionalBits: Int, halfOutput: Boolean,
+           outputFractionBits: Int = 23): UInt = {
     val width = sum.getWidth
-    val fraction = if (halfOutput) 10 else 23
+    val fraction = if (halfOutput) 10 else outputFractionBits
+    require(halfOutput || Set(13, 23).contains(fraction))
+    val storedFraction = if (halfOutput) 10 else 23
     val bias = if (halfOutput) 15 else 127
     val exponentBits = if (halfOutput) 5 else 8
     val sign = sum < 0.S
@@ -179,8 +182,9 @@ object TensorArithmetic {
     val finalExponent = normalExponent + carry.asUInt.zext
     val encodedExponent = Wire(UInt(exponentBits.W))
     encodedExponent := Mux(significand(fraction), (finalExponent + bias.S).asUInt, 0.U)
-    val finite = Cat(sign, encodedExponent, significand(fraction - 1, 0))
-    val infinity = Cat(sign, Fill(exponentBits, 1.U(1.W)), 0.U(fraction.W))
+    val finite = Cat(sign, encodedExponent, significand(fraction - 1, 0),
+      0.U((storedFraction - fraction).W))
+    val infinity = Cat(sign, Fill(exponentBits, 1.U(1.W)), 0.U(storedFraction.W))
     Mux(magnitude === 0.U, 0.U, Mux(finalExponent > bias.S, infinity, finite))
   }
 }

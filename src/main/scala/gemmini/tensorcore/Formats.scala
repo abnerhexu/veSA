@@ -22,26 +22,48 @@ object BlockScale {
   case object UE4M3 extends BlockScale
 }
 
-/** Only Blackwell is implemented until its release gate passes. */
+/** Static numerical profiles; no run-time precision reinterpretation. */
+sealed trait TensorConfig {
+  def format: TensorFormat
+  def halfOutput: Boolean
+  def blockScale: Option[BlockScale]
+  def architecture: String
+  def fractionalBits: Int
+  def zeroExponent: Int
+  def outputFractionBits: Int = if (halfOutput) 10 else 23
+  final def grouped: Boolean = blockScale.nonEmpty
+  final def fusionLength: Int = if (grouped) 64 else if (format.width == 8) 32 else 16
+  final def scaleBlockSize: Int = if (blockScale.contains(BlockScale.UE4M3)) 16 else 32
+  final def outputWidth: Int = if (halfOutput) 16 else 32
+  // Unnormalized T products <4. Four scaled GST groups plus C <9218.
+  final def integerBits: Int = if (grouped) 15 else 1 + (BigInt(4 * fusionLength + 2) - 1).bitLength
+  final def sumWidth: Int = fractionalBits + integerBits
+}
+
 case class BlackwellConfig(format: TensorFormat = TensorFormat.E4M3,
                            halfOutput: Boolean = false,
-                           blockScale: Option[BlockScale] = None) {
+                           blockScale: Option[BlockScale] = None) extends TensorConfig {
   require(Set(TensorFormat.FP16, TensorFormat.BF16,
     TensorFormat.E4M3, TensorFormat.E5M2, TensorFormat.E2M1).contains(format))
-  val grouped: Boolean = blockScale.nonEmpty
   require(grouped == (format == TensorFormat.E2M1), "FP4 requires an explicit block-scale profile")
   require(!grouped || !halfOutput, "Dedicated block-scaled FP4 has FP32 C/D")
   require(!halfOutput || format != TensorFormat.BF16, "BF16 has no native FP16-output instruction")
   val fractionalBits: Int = if (grouped) 35 else 25
-  val fusionLength: Int = if (grouped) 64 else if (format.width == 8) 32 else 16
-  val scaleBlockSize: Int = if (blockScale.contains(BlockScale.UE4M3)) 16 else 32
-  val outputWidth: Int = if (halfOutput) 16 else 32
   val zeroExponent: Int = if (grouped) -139 else if (halfOutput) -22 else -133
-  // Each unnormalized product has magnitude <4, C has magnitude <2.
-  // GST: group <=16*6*6, scale significands <2 each. Four groups plus C
-  // are bounded by 4*576*4+2=9218, requiring 15 signed integer bits.
-  val integerBits: Int = if (grouped) 15 else 1 + (BigInt(4 * fusionLength + 2) - 1).bitLength
-  val sumWidth: Int = fractionalBits + integerBits
+  val architecture = "blackwell"
+}
+
+/** Paper776 Table 6, pinned MMA-Sim WGMMA/HGMMA family (including e_zero). */
+case class HopperConfig(format: TensorFormat = TensorFormat.E4M3,
+                        halfOutput: Boolean = false) extends TensorConfig {
+  require(Set(TensorFormat.FP16, TensorFormat.BF16, TensorFormat.E4M3, TensorFormat.E5M2).contains(format),
+    "Hopper has no native FP4/block-scaled profile")
+  require(!halfOutput || format != TensorFormat.BF16, "BF16 has no native FP16-output instruction")
+  val blockScale: Option[BlockScale] = None
+  val architecture = "hopper"
+  val fractionalBits: Int = if (format.width == 8) 13 else 25
+  val zeroExponent: Int = -133
+  override def outputFractionBits: Int = if (!halfOutput && format.width == 8) 13 else super.outputFractionBits
 }
 
 object BlackwellConfig {

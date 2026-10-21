@@ -56,7 +56,7 @@ class TensorCommandGate[T <: Data](commandType: T, funct: T => UInt) extends Mod
   * including queued writes, rather than a guessed delay or global busy (which
   * includes this very command). Descriptor/profile changes never race a run.
   */
-class TensorCommandFrontend(config: BlackwellConfig = BlackwellConfig(),
+class TensorCommandFrontend(config: TensorConfig = BlackwellConfig(),
                             mem: TensorMemoryConfig = TensorMemoryConfig(),
                             xLen: Int = 64) extends Module {
   require(xLen >= 64, "Tensor commands require RV64")

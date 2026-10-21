@@ -14,6 +14,10 @@ class TensorWSStructureSpec extends AnyFlatSpec {
     assert(multipliers(e4m3) == 1, "E4M3 PE must contain one significand multiplier")
     assert(e4m3.contains("maximum : SInt<9>"), "Exponent wave must stay nine bits wide")
 
+    val hopper = chirrtl(new TensorWSPE(HopperConfig(), outputRows = 2, groupEnd = false))
+    assert(multipliers(hopper) == 1, "Hopper E4M3 PE must contain one significand multiplier")
+    assert(hopper.contains("maximum : SInt<9>"), "Hopper exponent wave must stay nine bits wide")
+
     val nvRegular = chirrtl(new TensorWSPE(BlackwellConfig.nvfp4,
       outputRows = 2, groupEnd = false))
     assert(multipliers(nvRegular) == 1,
@@ -26,9 +30,10 @@ class TensorWSStructureSpec extends AnyFlatSpec {
   }
 
   "The Tensor WS mesh" should "instantiate one fusion-length PE per output column" in {
-    def instances(config: BlackwellConfig): Int = chirrtl(new TensorMesh(config))
+    def instances(config: TensorConfig): Int = chirrtl(new TensorMesh(config))
       .linesIterator.count(_.trim.startsWith("inst pes_"))
     assert(instances(BlackwellConfig()) == 64)
+    assert(instances(HopperConfig()) == 64)
     assert(instances(BlackwellConfig.nvfp4) == 128)
   }
 }

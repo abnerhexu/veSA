@@ -8,15 +8,21 @@ import org.chipsalliance.cde.config.Parameters
 import org.scalatest.flatspec.AnyFlatSpec
 import scala.io.Source
 
-class GemminiRoCCSpec extends AnyFlatSpec with ChiselScalatestTester {
+abstract class GemminiRoCCChecks(hopper: Boolean) extends AnyFlatSpec with ChiselScalatestTester {
   val profiles = for (f <- Seq(TensorFormat.E4M3, TensorFormat.E5M2, TensorFormat.FP16, TensorFormat.BF16);
                      half <- Seq(false, true) if !(f == TensorFormat.BF16 && half))
-    yield s"${f.name}-${if (half) "f16" else "f32"}" -> BlackwellConfig(f, half)
-  for ((label, profile) <- profiles ++ Seq("mxfp4" -> BlackwellConfig.mxfp4, "nvfp4" -> BlackwellConfig.nvfp4)) {
-    "Real Gemmini RoCC and DMA" should s"load fuse and store $label through TileLink" in {
+    yield {
+      val profile: TensorConfig = if (hopper) HopperConfig(f, half) else BlackwellConfig(f, half)
+      s"${f.name}-${if (half) "f16" else "f32"}" -> profile
+    }
+  val grouped: Seq[(String, TensorConfig)] = if (hopper) Seq.empty else
+    Seq("mxfp4" -> BlackwellConfig.mxfp4, "nvfp4" -> BlackwellConfig.nvfp4)
+  for ((label, profile) <- profiles ++ grouped) {
+    val architecture = if (hopper) "Hopper" else "Blackwell"
+    s"Real $architecture Gemmini RoCC and DMA" should s"load fuse and store $label through TileLink" in {
       implicit val p: Parameters = IntegrationParameters()
       val source = Source.fromInputStream(getClass.getResourceAsStream(
-        if (profile.grouped) "/grouped-matrices.tsv" else "/matrices.tsv"))
+        if (profile.grouped) "/grouped-matrices.tsv" else if (hopper) "/hopper-matrices.tsv" else "/matrices.tsv"))
       val vectors = try source.getLines().filterNot(_.startsWith("#")).map(_.split(" ")).filter { v =>
         if (profile.grouped) v(0) == label
         else v(0) == profile.format.name && v(1) == (if (profile.halfOutput) "f16" else "f32")
@@ -144,12 +150,15 @@ class GemminiRoCCSpec extends AnyFlatSpec with ChiselScalatestTester {
           info("Verified real counter/Tensor response arbitration under backpressure")
 
           val before = Seq(memory(0x3800, None), memory(0x3808, None))
+          // Fixtures alternate D=15/4. Hopper's extra directed K=33 matrix
+          // makes the count odd, so the last successful D is not always 4.
+          val previousDBase = if ((vectors.size - 1)%2 == 0) 15 else 4
           descriptor(TensorCommandISA.AddrCD, 15, 31)
           command(TensorCommandISA.Run, (BigInt(0xbeef) << 16) | 1, 0, true)
           reply((BigInt(0xbeef) << 16) | TensorCommandISA.BadRange)
           command(0, 2, 8)
           command(3, 0x3800, (BigInt(2) << 48) | (BigInt(2) << 32) |
-            (BigInt(1) << 31) | (BigInt(1) << 29) | 4)
+            (BigInt(1) << 31) | (BigInt(1) << 29) | previousDBase)
           waitFor(!dut.io.busy.peek().litToBoolean)
           assert(Seq(memory(0x3800, None), memory(0x3808, None)) == before,
             "Invalid Tensor request modified a previous D tile")
@@ -203,3 +212,6 @@ class GemminiRoCCSpec extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 }
+
+class GemminiRoCCSpec extends GemminiRoCCChecks(false)
+class HopperRoCCSpec extends GemminiRoCCChecks(true)

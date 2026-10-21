@@ -48,16 +48,19 @@ def shift_rz(value, shift):
     return -magnitude if value < 0 else magnitude
 
 
-def pack(value, power, half_output=False):
+def pack(value, power, half_output=False, output_fraction_bits=23):
     """Pack exact value * 2**power: RZ-FP32 or RNE-FP16."""
     fmt = FORMATS["fp16"] if half_output else FP32
+    precision = fmt.fraction if half_output else output_fraction_bits
+    assert precision in (10, 13, 23)
+    padding = fmt.fraction - precision
     sign = (1 << (fmt.width - 1)) if value < 0 else 0
     value = abs(value)
     if not value:
         return 0
     bias = (1 << (fmt.exponent - 1)) - 1
     leading_exp = value.bit_length() - 1 + power
-    unit_exp = max(leading_exp, 1 - bias) - fmt.fraction
+    unit_exp = max(leading_exp, 1 - bias) - precision
     shift = unit_exp - power
     if shift > 0:
         sig, remainder = divmod(value, 1 << shift)
@@ -66,24 +69,28 @@ def pack(value, power, half_output=False):
             sig += remainder > halfway or (remainder == halfway and bool(sig & 1))
     else:
         sig = value << -shift
-    if sig >= 1 << (fmt.fraction + 1):
+    if sig >= 1 << (precision + 1):
         sig >>= 1
         unit_exp += 1
-    exponent = unit_exp + fmt.fraction
+    exponent = unit_exp + precision
     if exponent > bias:
         return sign | (((1 << fmt.exponent) - 1) << fmt.fraction)
-    if sig < 1 << fmt.fraction:
-        return sign | sig
-    return sign | ((exponent + bias) << fmt.fraction) | (sig & ((1 << fmt.fraction) - 1))
+    if sig < 1 << precision:
+        return sign | (sig << padding)
+    return sign | ((exponent + bias) << fmt.fraction) | ((sig & ((1 << precision) - 1)) << padding)
 
 
-def fdpa(a, b, c, format_name="e4m3", half_output=False):
-    """A single Blackwell fused block, including C and final conversion."""
+def fdpa(a, b, c, format_name="e4m3", half_output=False, architecture="blackwell"):
+    """Single Blackwell or Hopper WGMMA fused block, including C and conversion."""
+    assert architecture in ("blackwell", "hopper")
     fmt = FORMATS[format_name]
     assert not (format_name == "bf16" and half_output), "No native BF16 -> FP16 MMA"
     limit = 32 if fmt.width == 8 else 16
     assert 1 <= len(a) == len(b) <= limit
-    zero_exp = -22 if half_output else -133
+    hopper = architecture == "hopper"
+    zero_exp = -22 if half_output and not hopper else -133
+    fractional_bits = 13 if hopper and fmt.width == 8 else 25
+    output_fraction_bits = 13 if hopper and fmt.width == 8 and not half_output else 23
     terms = []
     infinity_signs = set()
     nan = False
@@ -112,14 +119,14 @@ def fdpa(a, b, c, format_name="e4m3", half_output=False):
     if infinity_signs:
         return (int(next(iter(infinity_signs))) << (width - 1)) | (0x7c00 if half_output else 0x7f800000)
     maximum = max(e for _, e, _ in terms)
-    total = sum(shift_rz(s, 25 - f + e - maximum) for s, e, f in terms)
-    return pack(total, maximum - 25, half_output)
+    total = sum(shift_rz(s, fractional_bits - f + e - maximum) for s, e, f in terms)
+    return pack(total, maximum - fractional_bits, half_output, output_fraction_bits)
 
 
-def dot(a, b, c, format_name="e4m3", half_output=False):
+def dot(a, b, c, format_name="e4m3", half_output=False, architecture="blackwell"):
     """Sequential fused blocks; only block outputs become the next C."""
     assert len(a) == len(b) and len(a) > 0
     length = 32 if FORMATS[format_name].width == 8 else 16
     for start in range(0, len(a), length):
-        c = fdpa(a[start:start + length], b[start:start + length], c, format_name, half_output)
+        c = fdpa(a[start:start + length], b[start:start + length], c, format_name, half_output, architecture)
     return c

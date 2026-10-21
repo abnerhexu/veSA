@@ -102,7 +102,7 @@ case class GemminiArrayConfig[T <: Data : Arithmetic, U <: Data, V <: Data](
 
                                                                              headerFileName: String = "gemmini_params.h",
                                                                              tensorcore_raw_access: Boolean = false,
-                                                                             tensorcore: Option[gemmini.tensorcore.BlackwellConfig] = None
+                                                                             tensorcore: Option[gemmini.tensorcore.TensorConfig] = None
                                                        ) {
   require(inputType.getWidth == weightType.getWidth)
   val tensorcore_memory_access = tensorcore_raw_access || tensorcore.nonEmpty
@@ -358,6 +358,9 @@ case class GemminiArrayConfig[T <: Data : Arithmetic, U <: Data, V <: Data](
     header ++= s"#define DIM ${tileColumns*meshColumns}\n"
     header ++= s"#define GEMMINI_TENSOR_ENABLED ${if (tensorcore.nonEmpty) 1 else 0}\n"
     tensorcore.foreach { profile =>
+      header ++= s"#define GEMMINI_TENSOR_ARCH_${profile.architecture.toUpperCase} 1\n"
+      header ++= s"#define GEMMINI_TENSOR_FRACTIONAL_BITS ${profile.fractionalBits}\n"
+      header ++= s"#define GEMMINI_TENSOR_OUTPUT_FRACTION_BITS ${profile.outputFractionBits}\n"
       header ++= s"#define GEMMINI_TENSOR_PROFILE_${profile.format.name.toUpperCase} 1\n"
       header ++= s"#define GEMMINI_TENSOR_HALF_OUTPUT ${if (profile.halfOutput) 1 else 0}\n"
       header ++= s"#define GEMMINI_TENSOR_SCALE_BLOCK ${if (profile.grouped) profile.scaleBlockSize else 0}\n"

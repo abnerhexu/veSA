@@ -3,7 +3,7 @@ package gemmini.tensorcore
 import chisel3._
 import chisel3.util._
 
-class TensorWSActivation(config: BlackwellConfig) extends Bundle {
+class TensorWSActivation(config: TensorConfig) extends Bundle {
   val a = UInt(config.format.width.W)
   val alpha = if (config.grouped) Some(UInt(8.W)) else None
   // False rows carry the vertical state through a short final segment without
@@ -11,13 +11,13 @@ class TensorWSActivation(config: BlackwellConfig) extends Bundle {
   val active = Bool()
 }
 
-class TensorWSWeightLoad(config: BlackwellConfig) extends Bundle {
+class TensorWSWeightLoad(config: TensorConfig) extends Bundle {
   val bank = Bool()
   val b = UInt(config.format.width.W)
   val beta = if (config.grouped) Some(UInt(8.W)) else None
 }
 
-class TensorWSExponentState(config: BlackwellConfig, outputRows: Int) extends Bundle {
+class TensorWSExponentState(config: TensorConfig, outputRows: Int) extends Bundle {
   // Nine signed bits cover every implemented product/group exponent:
   // Blackwell GST [-139, 254], unscaled products, and Hopper zero -133.
   val maximum = SInt(9.W)
@@ -35,7 +35,7 @@ class TensorWSFeedback(outputRows: Int) extends Bundle {
   val bank = Bool()
 }
 
-class TensorWSSumState(config: BlackwellConfig, outputRows: Int) extends Bundle {
+class TensorWSSumState(config: TensorConfig, outputRows: Int) extends Bundle {
   val maximum = SInt(9.W)
   val sum = SInt(config.sumWidth.W)
   val nan = Bool()
@@ -54,7 +54,7 @@ class TensorWSSumState(config: BlackwellConfig, outputRows: Int) extends Bundle 
   * Activations move horizontally; maximum-exponent or fixed-sum state moves
   * vertically. No product is retained in a PE.
   */
-class TensorWSPE(config: BlackwellConfig, outputRows: Int, groupEnd: Boolean) extends Module {
+class TensorWSPE(config: TensorConfig, outputRows: Int, groupEnd: Boolean) extends Module {
   val io = IO(new Bundle {
     val load = Input(Valid(new TensorWSWeightLoad(config)))
 

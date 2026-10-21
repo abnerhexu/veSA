@@ -3,13 +3,13 @@ package gemmini.tensorcore
 import chisel3._
 import chisel3.util._
 
-class TensorMatrixRequest(config: BlackwellConfig, rows: Int, columns: Int) extends Bundle {
+class TensorMatrixRequest(config: TensorConfig, rows: Int, columns: Int) extends Bundle {
   val c = Vec(rows, Vec(columns, UInt(config.outputWidth.W)))
   val k = UInt(16.W)
   val tag = UInt(16.W)
 }
 
-class TensorMatrixOperands(config: BlackwellConfig, rows: Int, columns: Int) extends Bundle {
+class TensorMatrixOperands(config: TensorConfig, rows: Int, columns: Int) extends Bundle {
   // One K slice: A[:, k] and B[k, :]. Skewing is internal to the mesh.
   val a = Vec(rows, UInt(config.format.width.W))
   val b = Vec(columns, UInt(config.format.width.W))
@@ -17,7 +17,7 @@ class TensorMatrixOperands(config: BlackwellConfig, rows: Int, columns: Int) ext
   val beta = if (config.grouped) Some(Vec(columns, UInt(8.W))) else None
 }
 
-class TensorMatrixResult(config: BlackwellConfig, rows: Int, columns: Int) extends Bundle {
+class TensorMatrixResult(config: TensorConfig, rows: Int, columns: Int) extends Bundle {
   val d = Vec(rows, Vec(columns, UInt(config.outputWidth.W)))
   val tag = UInt(16.W)
 }
@@ -36,7 +36,7 @@ class TensorMatrixResult(config: BlackwellConfig, rows: Int, columns: Int) exten
   * While one bank is replayed, the other bank may be loaded and prepassed, so
   * the exponent and significand lanes operate concurrently in steady state.
   */
-class TensorMesh(val config: BlackwellConfig = BlackwellConfig(),
+class TensorMesh(val config: TensorConfig = BlackwellConfig(),
                  val rows: Int = 2, val columns: Int = 2) extends Module {
   require(rows > 0 && columns > 0)
   val io = IO(new Bundle {
@@ -279,7 +279,7 @@ class TensorMesh(val config: BlackwellConfig = BlackwellConfig(),
       Mux(result.positiveInfinity || result.negativeInfinity,
         infinity | Mux(result.negativeInfinity, sign, 0.U),
         TensorArithmetic.pack(result.sum, result.maximum,
-          config.fractionalBits, config.halfOutput)))
+          config.fractionalBits, config.halfOutput, config.outputFractionBits)))
   }
 
   private val replayBottomValid = Wire(Vec(columns, Bool()))

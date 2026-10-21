@@ -6,18 +6,20 @@ import org.scalatest.flatspec.AnyFlatSpec
 import scala.io.Source
 import scala.util.Random
 
-class TensorMeshSpec extends AnyFlatSpec with ChiselScalatestTester {
+abstract class TensorMeshChecks(hopper: Boolean) extends AnyFlatSpec with ChiselScalatestTester {
   for (format <- Seq(TensorFormat.E4M3, TensorFormat.E5M2, TensorFormat.FP16, TensorFormat.BF16);
        half <- Seq(false, true) if !(format == TensorFormat.BF16 && half)) {
     val label = s"${format.name}-${if (half) "f16" else "f32"}"
-    "Blackwell TensorMesh" should s"preserve block boundaries for $label with K up to 65" in {
-      val source = Source.fromInputStream(getClass.getResourceAsStream("/matrices.tsv"))
+    val architecture = if (hopper) "Hopper" else "Blackwell"
+    s"$architecture TensorMesh" should s"preserve block boundaries for $label with K up to 65" in {
+      val source = Source.fromInputStream(getClass.getResourceAsStream(
+        if (hopper) "/hopper-matrices.tsv" else "/matrices.tsv"))
       val vectors = try source.getLines().filterNot(_.startsWith("#")).map(_.split(" ")).filter(
         fields => fields(0) == format.name && fields(1) == (if (half) "f16" else "f32")).toVector
       finally source.close()
       assert(vectors.nonEmpty)
-      test(new TensorMesh(BlackwellConfig(format, half)))
-        .withAnnotations(TensorTestBackend.annotations) { dut =>
+      val profile: TensorConfig = if (hopper) HopperConfig(format, half) else BlackwellConfig(format, half)
+      test(new TensorMesh(profile)).withAnnotations(TensorTestBackend.annotations) { dut =>
         val random = new Random(2899)
         dut.io.req.valid.poke(false.B)
         dut.io.in.valid.poke(false.B)
@@ -69,3 +71,6 @@ class TensorMeshSpec extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
 }
+
+class TensorMeshSpec extends TensorMeshChecks(false)
+class HopperMeshSpec extends TensorMeshChecks(true)

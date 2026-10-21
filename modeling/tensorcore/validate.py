@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cases", type=int, default=1000, help="cases per supported format/output")
     parser.add_argument("--seed", type=int, default=776)
+    parser.add_argument("--architecture", choices=("blackwell", "hopper"), default="blackwell")
     parser.add_argument("--vectors", type=Path, help="write a bounded subset of verified RTL vectors")
     parser.add_argument("--matrix-vectors", type=Path, help="write author-verified 2x2 matrix vectors")
     args = parser.parse_args()
@@ -38,8 +39,11 @@ def main():
                 continue
             rng = random.Random(f"{args.seed}:{name}:{half}")
             length = 32 if fmt.width == 8 else 16
-            oracle = MMA_T_FDPA(25, "RNE-FP16" if half else "RZ-FP32", length,
-                               -22 if half else -133)
+            hopper = args.architecture == "hopper"
+            fractional_bits = 13 if hopper and fmt.width == 8 else 25
+            rho = "RNE-FP16" if half else "RZ-E8M13" if hopper and fmt.width == 8 else "RZ-FP32"
+            oracle = MMA_T_FDPA(fractional_bits, rho, length,
+                               -22 if half and not hopper else -133)
             int_dtype = torch.uint8 if fmt.width == 8 else torch.uint16
             def verified_vector(av, bv, cv):
                 a = torch.tensor([av], dtype=int_dtype).view(dtypes[name])
@@ -47,7 +51,7 @@ def main():
                 c = torch.tensor([cv], dtype=torch.uint16 if half else torch.uint32).view(
                     torch.float16 if half else torch.float32)
                 got = oracle.dpa(a, b, c).view(torch.uint16 if half else torch.uint32).item()
-                assert got == fdpa(av, bv, cv, name, half), (name, half, av, bv, cv, got)
+                assert got == fdpa(av, bv, cv, name, half, args.architecture), (name, half, av, bv, cv, got)
                 vectors.append(" ".join((name, "f16" if half else "f32",
                     ",".join(f"{x:x}" for x in av), ",".join(f"{x:x}" for x in bv),
                     f"{cv:x}", f"{got:x}")))
@@ -58,6 +62,21 @@ def main():
                                ([one], [one], 0), ([one, one | sign], [one, one], 0),
                                ([0], [0], 0x8000 if half else 0x80000000)]:
                 verified_vector(av, bv, cv)
+            if hopper:
+                # C-only FP32 rounding and negative RZ, including reduced
+                # precision subnormals. Blackwell fixture generation is unchanged.
+                for cv in ((1, 0x3ff, 0x400, 0x7fffff, 0x800000, 0x3f8007ff,
+                            0xbf8007ff, 0x7f7fffff, 0xff7fffff) if not half else (1, 0x8001)):
+                    verified_vector([0], [0], cv)
+                if name == "fp16" and half:
+                    # Half-subnormal rounding tie plus an extremely small term.
+                    verified_vector([0x0800, 1], [0x0c00, 1], 0)
+                if fmt.width == 8 and not half:
+                    # Growth to exponent 4 makes block-end E8M13 rounding
+                    # observable separately from F=13 alignment truncation.
+                    tiny_a, tiny_b = (0x08, 0x04) if name == "e4m3" else (0x08, 0x3c)
+                    verified_vector([one]*31 + [tiny_a], [one]*31 + [tiny_b], 0)
+                    verified_vector([one | sign]*31 + [tiny_a | sign], [one]*31 + [tiny_b], 0)
             if not half:
                 one_and_half = one | (1 << (fmt.fraction - 1))
                 verified_vector([one_and_half, one_and_half | sign],
@@ -84,7 +103,7 @@ def main():
                     torch.float16 if half else torch.float32)
                 actual = oracle.dpa(a, b, c).view(torch.uint16 if half else torch.uint32).tolist()
                 for i, (av, bv, cv, got) in enumerate(zip(aa, bb, cc, actual)):
-                    expected = fdpa(av, bv, cv, name, half)
+                    expected = fdpa(av, bv, cv, name, half, args.architecture)
                     if got != expected:
                         raise AssertionError(dict(format=name, half=half, case=count + i,
                                                   a=av, b=bv, c=hex(cv),
@@ -118,11 +137,30 @@ def main():
                             torch.float16 if half else torch.float32)
                         got = oracle(a, b, c).view(torch.uint16 if half else torch.uint32).tolist()
                         expected = [[dot(av[r], [bv[t][col] for t in range(k)], cv[r][col],
-                                         name, half) for col in range(2)] for r in range(2)]
+                                         name, half, args.architecture) for col in range(2)] for r in range(2)]
                         assert got == expected, (name, half, k, got, expected)
                         csv = lambda matrix: ",".join(f"{x:x}" for row in matrix for x in row)
                         matrices.append(" ".join((name, "f16" if half else "f32", str(k),
                                                   csv(av), csv(bv), csv(cv), csv(got))))
+                if hopper and fmt.width == 8:
+                    # A 33rd term cancels the integer part after the first
+                    # block has rounded. Rounding only once at K end is wrong.
+                    tiny_a, tiny_b = (0x08, 0x04) if name == "e4m3" else (0x08, 0x3c)
+                    thirty_two = (((1 << (fmt.exponent - 1)) - 1) + 5) << fmt.fraction
+                    av = [[one]*31 + [tiny_a, one | sign] for _ in range(2)]
+                    bv = [[one]*2 for _ in range(31)] + [[tiny_b]*2, [thirty_two]*2]
+                    cv = [[0, 0], [0, 0]]
+                    a = torch.tensor(av, dtype=int_dtype).view(dtypes[name])
+                    b = torch.tensor(bv, dtype=int_dtype).view(dtypes[name])
+                    c = torch.tensor(cv, dtype=torch.uint16 if half else torch.uint32).view(
+                        torch.float16 if half else torch.float32)
+                    got = oracle(a, b, c).view(torch.uint16 if half else torch.uint32).tolist()
+                    expected = [[dot(av[r], [bv[t][col] for t in range(33)], 0,
+                                     name, half, args.architecture) for col in range(2)] for r in range(2)]
+                    assert got == expected, (name, half, got, expected)
+                    csv = lambda matrix: ",".join(f"{x:x}" for row in matrix for x in row)
+                    matrices.append(" ".join((name, "f16" if half else "f32", "33",
+                                              csv(av), csv(bv), csv(cv), csv(got))))
     if args.vectors:
         args.vectors.parent.mkdir(parents=True, exist_ok=True)
         args.vectors.write_text("\n".join(vectors) + "\n")
@@ -131,7 +169,7 @@ def main():
         args.matrix_vectors.parent.mkdir(parents=True, exist_ok=True)
         args.matrix_vectors.write_text("\n".join(matrices) + "\n")
         print(f"Exported {len(matrices)-1} matrices to {args.matrix_vectors}")
-    print(f"PASS total={total}; mmasim=2.0.3; torch={torch.__version__}; seed={args.seed}")
+    print(f"PASS total={total}; architecture={args.architecture}; mmasim=2.0.3; torch={torch.__version__}; seed={args.seed}")
 
 
 if __name__ == "__main__":
