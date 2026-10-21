@@ -17,7 +17,9 @@ raw ports; `tensorcore_raw_access=true` alone still leaves them tied idle.
 The first integrated configuration requires RV64, an ungated clock, internal
 non-dummy SRAM, 32-bit accumulator slots, and operand storage slots of exactly
 8 or 16 bits, matching the selected profile. Bank counts/depths must meet
-`TensorMemoryConfig`'s power-of-two constraints. The physical array is square.
+`TensorMemoryConfig`'s power-of-two constraints. The logical output tile is
+square in the supplied factory configurations; the Tensor compute fabric is a
+`fusionLength x dim` weight-stationary array.
 No FP32/TF32/FP64 A/B path is introduced.
 
 `TensorCoreConfigs.blackwell(profile, dim=2, singlePortedAccumulator=false)`

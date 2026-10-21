@@ -13,7 +13,7 @@ class GroupedMeshSpec extends AnyFlatSpec with ChiselScalatestTester {
       val vectors = try source.getLines().filterNot(_.startsWith("#")).map(_.split(" "))
         .filter(_(0) == kind).toVector finally source.close()
       assert(vectors.nonEmpty)
-      test(new TensorMesh(config)) { dut =>
+      test(new TensorMesh(config)).withAnnotations(TensorTestBackend.annotations) { dut =>
         val random = new Random(776)
         dut.io.req.valid.poke(false.B)
         dut.io.in.valid.poke(false.B)
@@ -53,10 +53,12 @@ class GroupedMeshSpec extends AnyFlatSpec with ChiselScalatestTester {
           }
           dut.io.in.valid.poke(false.B)
           var waited = 0
-          while (!dut.io.out.valid.peek().litToBoolean && waited < 100) {
+          // A 64-deep WS column includes the explicit 64-cycle exponent
+          // feedback FIFO before the significand wave can start.
+          while (!dut.io.out.valid.peek().litToBoolean && waited < 400) {
             dut.clock.step(); waited += 1
           }
-          assert(waited < 100)
+          assert(waited < 400)
           def check(): Unit = {
             dut.io.out.bits.tag.expect((tag+100).U)
             for (r <- 0 until 2; col <- 0 until 2) dut.io.out.bits.d(r)(col).expect(d(r*2+col).U)

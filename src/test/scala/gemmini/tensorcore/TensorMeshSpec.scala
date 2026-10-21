@@ -16,7 +16,8 @@ class TensorMeshSpec extends AnyFlatSpec with ChiselScalatestTester {
         fields => fields(0) == format.name && fields(1) == (if (half) "f16" else "f32")).toVector
       finally source.close()
       assert(vectors.nonEmpty)
-      test(new TensorMesh(BlackwellConfig(format, half))) { dut =>
+      test(new TensorMesh(BlackwellConfig(format, half)))
+        .withAnnotations(TensorTestBackend.annotations) { dut =>
         val random = new Random(2899)
         dut.io.req.valid.poke(false.B)
         dut.io.in.valid.poke(false.B)

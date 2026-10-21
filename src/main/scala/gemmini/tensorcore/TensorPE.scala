@@ -15,7 +15,10 @@ class TensorOperands(config: BlackwellConfig) extends Bundle {
   val beta = if (config.grouped) Some(UInt(8.W)) else None
 }
 
-/** Low-precision front end to the shared exact fused accumulator. */
+/** Standalone scalar arithmetic fixture.
+  * The production TensorMesh instantiates TensorWSPE and does not use this
+  * product-collecting module as a physical systolic PE.
+  */
 class TensorPE(val config: BlackwellConfig = BlackwellConfig()) extends Module {
   val io = IO(new Bundle {
     val req = Flipped(Decoupled(new TensorRequest(config)))

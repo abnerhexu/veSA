@@ -48,7 +48,8 @@ All nine profile names are accepted by the serial runner: `e4m3-f32`,
 `e4m3-f16`, `e5m2-f32`, `e5m2-f16`, `fp16-f32`, `fp16-f16`, `bf16-f32`,
 `mxfp4`, `nvfp4`. RTL generation also accepts `rtl-fp16`, `rtl-nvfp4` and
 `rtl-disabled`, the last checking that the default-off legacy path elaborates.
-Each test uses a 2x2 array, internal SRAM and a 64-bit TileLink beat; no FP32
+Each test uses a 2x2 output tile and its profile-sized weight-stationary Tensor
+array, internal SRAM and a 64-bit TileLink beat; no FP32
 A/B MMA is added. FP16 C/D still occupies low halfwords in 32-bit raw slots.
 
 All nine profiles and enabled/default-off RTL generation passed P5; see the

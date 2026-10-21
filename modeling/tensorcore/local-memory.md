@@ -39,9 +39,13 @@ not numerically convert FP16 C to FP32 or FP32 C to FP16.
 
 All initial C rows are fetched before compute. The mesh rounds at its own
 fusion boundaries, independent of row/bank boundaries. Scale rows are fetched
-once per shared-scale block and retained between K slices. A and B may be in
-the same bank: the adapter serializes reads and tracks only one outstanding
-read, so response tags or fixed latency assumptions are unnecessary.
+once per shared-scale block and retained between K slices. Each accepted slice
+loads B into one of the PE's stationary banks and A into the corresponding
+left-edge bank; the mesh then emits the exponent and full-data waves internally.
+A and B may be in the same scratchpad bank: the adapter serializes reads and
+tracks only one outstanding read, so response tags or fixed latency assumptions
+are unnecessary. This conservative adapter can limit system throughput even
+though the mesh itself accepts consecutive slices and overlaps adjacent banks.
 
 ## Ports and ownership
 
@@ -82,9 +86,9 @@ tasks at once. Test heap remains limited to 1536 MiB.
 mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.TensorExecuteSpec -- -z e4m3-f32
 ```
 
-The default simulator is Treadle. If a working `verilator_bin` and its matching
-installed include/make files are available, the memory tests also support a
-compiled backend without depending on Perl's Verilator launcher:
+The production-size WS mesh and memory tests use the compiled Verilator backend.
+If a working `verilator_bin` and its matching installed include/make files are
+available, run them without depending on Perl's Verilator launcher:
 
 ```sh
 ./scripts/test-tensorcore-memory.sh e4m3-f32

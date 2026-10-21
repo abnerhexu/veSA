@@ -48,6 +48,103 @@ object TensorArithmetic {
     result
   }
 
+  /** Product classification and exponent for the narrow WS exponent wave.
+    * This deliberately contains no significand multiplier.
+    */
+  def productMetadata(a: UInt, b: UInt, format: TensorFormat,
+                      zeroExponent: Int): TensorTerm = {
+    val left = decode(a, format.exponentBits, format.fractionBits, format.finiteOnly)
+    val right = decode(b, format.exponentBits, format.fractionBits, format.finiteOnly)
+    val zeroLeft = left.magnitude === 0.U
+    val zeroRight = right.magnitude === 0.U
+    val result = Wire(new TensorTerm)
+    result := 0.U.asTypeOf(new TensorTerm)
+    result.sign := left.sign ^ right.sign
+    result.exponent := Mux(zeroLeft || zeroRight, zeroExponent.S,
+      left.exponent + right.exponent)
+    result.nan := left.nan || right.nan ||
+      (left.infinity && zeroRight && !right.infinity) ||
+      (right.infinity && zeroLeft && !left.infinity)
+    result.infinity := left.infinity || right.infinity
+    result
+  }
+
+  /** Align one unnormalised term to the final block exponent and truncate its
+    * magnitude before restoring the sign. This works for F both above and
+    * below the internal 23-bit TensorTerm radix.
+    */
+  def align(term: TensorTerm, maximum: SInt, config: BlackwellConfig): SInt = {
+    val delta = (maximum - term.exponent).asUInt
+    val magnitude = if (config.fractionalBits >= 23) {
+      (term.magnitude << (config.fractionalBits - 23)) >> delta
+    } else {
+      term.magnitude >> (delta +& (23 - config.fractionalBits).U)
+    }
+    val resized = Wire(UInt(config.sumWidth.W))
+    resized := magnitude
+    Mux(term.sign, -resized.zext, resized.zext)
+  }
+
+  /** Exact E2M1 product in quarter units for a GST group. */
+  def fp4QuarterProduct(a: UInt, b: UInt): (SInt, Bool) = {
+    val halfUnits = VecInit(Seq(0, 1, 2, 3, 4, 6, 8, 12).map(_.U(4.W)))
+    val magnitude = halfUnits(a(2, 0)) * halfUnits(b(2, 0))
+    val signed = Mux(a(3) ^ b(3), -magnitude.zext, magnitude.zext)
+    (signed, magnitude.orR)
+  }
+
+  /** GST exponent-wave metadata. A cancelling group keeps the scale exponent;
+    * therefore the prepass needs only "any nonzero product", not a product or
+    * exact group sum.
+    */
+  def scaleGroupMetadata(anyProduct: Bool, alpha: UInt, beta: UInt,
+                         config: BlackwellConfig): TensorTerm = {
+    require(config.grouped)
+    val nvfp4 = config.blockScale.contains(BlockScale.UE4M3)
+    def scale(raw: UInt): (UInt, SInt, Bool) = {
+      if (nvfp4) {
+        val decoded = decode(Cat(0.U(1.W), raw(6, 0)), 4, 3, finiteOnly = true)
+        ((decoded.magnitude >> 20)(3, 0), decoded.exponent, decoded.nan)
+      } else {
+        (1.U(4.W), raw.zext - 127.S(12.W), raw === 255.U)
+      }
+    }
+    val (sa, ea, nanA) = scale(alpha)
+    val (sb, eb, nanB) = scale(beta)
+    val result = Wire(new TensorTerm)
+    result := 0.U.asTypeOf(new TensorTerm)
+    result.exponent := Mux(!anyProduct || sa === 0.U || sb === 0.U,
+      config.zeroExponent.S, ea + eb)
+    result.nan := nanA || nanB
+    result
+  }
+
+  /** Scale one exact 16-element E2M1 group without normalising it. */
+  def scaleGroup(quarter: SInt, anyProduct: Bool, alpha: UInt, beta: UInt,
+                 config: BlackwellConfig): TensorTerm = {
+    require(config.grouped)
+    val nvfp4 = config.blockScale.contains(BlockScale.UE4M3)
+    def scale(raw: UInt): (UInt, SInt, Bool) = {
+      if (nvfp4) {
+        val decoded = decode(Cat(0.U(1.W), raw(6, 0)), 4, 3, finiteOnly = true)
+        ((decoded.magnitude >> 20)(3, 0), decoded.exponent, decoded.nan)
+      } else {
+        (1.U(4.W), raw.zext - 127.S(12.W), raw === 255.U)
+      }
+    }
+    val (sa, ea, nanA) = scale(alpha)
+    val (sb, eb, nanB) = scale(beta)
+    val magnitude = Mux(quarter < 0.S, (-quarter).asUInt, quarter.asUInt)
+    val result = Wire(new TensorTerm)
+    result.sign := quarter < 0.S
+    result.magnitude := (magnitude * sa * sb) << (if (nvfp4) 15 else 21)
+    result.exponent := Mux(!anyProduct || sa === 0.U || sb === 0.U,
+      config.zeroExponent.S, ea + eb)
+    result.nan := nanA || nanB
+    result.infinity := false.B
+    result
+  }
+
   /** Exact fixed-point sum -> RZ-FP32 or RNE-FP16; no intermediate FP rounding. */
   def pack(sum: SInt, exponent: SInt, fractionalBits: Int, halfOutput: Boolean): UInt = {
     val width = sum.getWidth

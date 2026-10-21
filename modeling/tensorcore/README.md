@@ -42,13 +42,15 @@ locked upstream sources and has passed all nine profiles through real RoCC,
 MVIN and MVOUT, plus legacy OS/counter/reset checks. This does not claim CPU
 boot, VM, 4x4 or full single-port RoCC/DMA coverage; see the recorded scope.
 
-`TensorPE` accepts a request containing raw C bits and a block length in
+`TensorPE` is retained as a standalone scalar arithmetic fixture. It accepts a
+request containing raw C bits and a block length in
 `1..fusionLength` for unscaled formats, or exactly 64 for FP4. It accepts that
 many raw A/B pairs. For unscaled inputs it buffers unnormalized exact
 products, finds the common exponent including C, truncates each aligned
 magnitude toward zero at F=25, and exactly sums before the final conversion.
 Inputs advance on `valid && ready`; output is held until consumed. Reset aborts
-the in-flight block.
+the in-flight block. The production mesh does not instantiate this collector;
+its physical PE is `TensorWSPE` below.
 
 For FP4, `GroupedDotFrontend` computes exact 16-element group dots in quarter
 units, multiplies the scale significands without normalization, and supplies
@@ -63,15 +65,36 @@ transactions (two computation groups); NVFP4 scales stay constant across 16.
 These contracts are asserted in simulation. NVFP4's ignored high byte bit is
 masked before scale decoding or checking the block-constant contract.
 
-`TensorMesh` is an output-stationary 2x2 array by default, parameterized by row
-and column count. A moves horizontally and B vertically through registers. Its
-request supplies C, K (1..65535) and a 16-bit tag; each input transaction supplies
-one A column and one B row. It performs internal wavefront skewing and stalls
-forwarding on input bubbles. It rounds at the specified fusion boundaries,
-reuses the rounded result as the next C, and holds the final matrix/tag until
-accepted. Only one matrix request is in flight.
+`TensorMesh` produces a 2x2 output tile by default, but its compute fabric is a
+weight-stationary `fusionLength x columns` array. Each `TensorWSPE` contains two
+stationary B/scale banks, a 9-bit signed exponent lane and one exact
+significand multiplier plus fixed-point adder. A is transposed into two buffers
+at the left edge. It moves horizontally through the same PE rows twice; the
+first wave performs only `(max,+)` exponent work, while the second wave aligns
+products to the fixed maximum and carries a fixed-point sum vertically down
+each column. No PE retains products.
 
-For FP4, mesh K must be a positive multiple of 64; other lengths are rejected
+The exponent result returns through a `fusionLength`-deep narrow FIFO. Nine
+signed bits cover the implemented exponent range from the GST zero exponent
+-139 through the largest scaled-group exponent 254. C is
+decoded and aligned at the column top when that result returns. A second segment
+may load and run its exponent wave while the first segment is replayed; a
+dedicated regression checks uninterrupted bank-to-bank input and the overlap
+latency bound. For K greater than the fusion length, the column-bottom result is
+normalized to the configured FP32/FP16 format and becomes C for the next
+segment. Thus a physical segment implements FDA and repeated segments implement
+the ordered CoFDA chain without increasing physical depth with runtime K.
+
+The request supplies C, K (1..65535) and a 16-bit tag; each input transaction
+supplies one A column and one B row for loading. Input bubbles affect collection
+only. The mesh holds the final matrix/tag until accepted and permits one matrix
+request in flight.
+
+For FP4, the physical WS column is 64 PEs deep and has exact group boundaries
+after every 16 PEs. Each group carries an exact quarter-unit sum before its
+scale generates one GST term; the four terms and C then use the same maximum
+exponent and F=35 fixed-point sum. Mesh K must be a positive multiple of 64;
+other lengths are rejected
 by an assertion, with no implicit padding. Its optional `in.alpha` vector
 supplies one scale byte per A row and `in.beta` one per B column for the current
 K slice. Scale metadata moves with the corresponding operands through the
@@ -83,7 +106,9 @@ becomes C for the next block. A 32-element scale boundary does not round the sum
 The standalone build uses Mill 1.3.0, JDK 17, Scala 2.13.10, Chisel 3.6.0,
 chiseltest 0.6.0 and ScalaTest 3.2.15. It excludes Rocket/Chipyard-dependent
 sources. Existing `build.sbt` is unchanged. JDK 17 is selected for compatibility
-with the existing Scala compiler. Treadle simulation requires no GPU or Verilator.
+with the existing Scala compiler. The physical WS mesh regressions use
+Verilator because the 16/32/64-deep arrays are too slow under Treadle; no GPU is
+required.
 
 Run commands from the Gemmini submodule (`veSA/`). Run only one test task at a
 time: `-j 1` limits Mill task concurrency, and the test JVM heap is capped at
@@ -92,11 +117,13 @@ time: `-j 1` limits Mill task concurrency, and the test JVM heap is capped at
 ```sh
 mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.BuildSmokeSpec
 mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.TensorPESpec
-mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.TensorMeshSpec
+TENSORCORE_SIM=verilator mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.TensorMeshSpec
+TENSORCORE_SIM=verilator mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.TensorWSMeshSpec
+mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.TensorWSStructureSpec
 mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.GroupedFrontendSpec
 mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.GroupedPESpec -- -z mxfp4
 mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.GroupedPESpec -- -z nvfp4
-mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.GroupedMeshSpec
+TENSORCORE_SIM=verilator mill --no-server -j 1 tensorcore.test.testOnly gemmini.tensorcore.GroupedMeshSpec
 ```
 
 To run one format/output combination, append `-- -z e4m3-f32` to the PE or mesh
