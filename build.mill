@@ -34,6 +34,31 @@ object tensorcore extends ScalaModule {
   }
 }
 
+// Parameterized WS experiment core. It depends on the released arithmetic but
+// is kept out of the production Tensor target and Gemmini integration.
+object wsExperiments extends ScalaModule {
+  def moduleDeps = Seq(tensorcore)
+  def jvmVersion = "temurin:17"
+  def scalaVersion = "2.13.10"
+  def sources = Task.Sources(moduleDir / os.up / "experiments/ws_sweeps/scala")
+  def mvnDeps = Seq(mvn"edu.berkeley.cs::chisel3:3.6.0")
+  def scalacPluginMvnDeps = Seq(mvn"edu.berkeley.cs:::chisel3-plugin:3.6.0")
+  def scalacOptions = Seq("-language:reflectiveCalls", "-deprecation", "-feature")
+  object test extends ScalaTests with TestModule.ScalaTest {
+    def forkArgs = Seq("-Xmx1536m", "-XX:ActiveProcessorCount=1")
+    def forkEnv = Task {
+      super.forkEnv() ++ Map("PATH" -> (
+        (moduleDir / os.up / os.up / "scripts/tensorcore-verilator").toString +
+          ":" + Task.env.getOrElse("PATH", "")))
+    }
+    def sources = Task.Sources(moduleDir / os.up / os.up / "experiments/ws_sweeps/test",
+      moduleDir / os.up / os.up / "src/test/scala/gemmini/tensorcore/TensorTestBackend.scala")
+    def resources = Task.Sources(moduleDir / os.up / os.up / "modeling/tensorcore")
+    def mvnDeps = Seq(mvn"edu.berkeley.cs::chiseltest:0.6.0",
+      mvn"org.scalatest::scalatest:3.2.15")
+  }
+}
+
 // Parse edited integration sources without pretending to typecheck Chipyard,
 // Rocket or HardFloat. Full system elaboration remains a separate release gate.
 object integrationSyntax extends ScalaModule {

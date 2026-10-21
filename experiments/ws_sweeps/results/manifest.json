@@ -1,0 +1,23 @@
+{
+  "base_commit": "f197fdfc52118d654740ac747134e207bf0483e7",
+  "seed": 20261021,
+  "trials": 4,
+  "M": 16,
+  "N": 16,
+  "fp8_K": 256,
+  "fp4_K": 64,
+  "input_policy": "finite signed raw encodings with exponent spread; signed nonzero FP32 C",
+  "relative_error_denominator": "abs(reference); zero references excluded and counted",
+  "os_baseline": "exact low-precision product followed by sequential IEEE FP32 RNE FMA",
+  "source_sha256": {
+    "precision_model.py": "bd050a452566ea62e96dbc1682e685f61e97d733b04ccef5767b0ccb6dd72e21",
+    "run_precision.py": "ae68f9c5334b517579b63222d7b83e7ad610ef32e7c93d26ab28659b6723d6d8"
+  },
+  "files": {
+    "fp8_f_sweep.csv": "3a2a961b3997b25bd32ac0b73ea503305b6a4d9684b8dc28d0d07f4c60902541",
+    "fp4_g_f_sweep.csv": "5b1d440e12a2fbf33328f861cb1daabbccd3cbaa4053bd4b9d0968abe886eed1",
+    "fp4_gs_sweep.csv": "1d89753d1881a9d23db890edc366f5b825397703d96cc34ebe585e6a2430cbca",
+    "c_coupling_sweep.csv": "3be734903eb175297b938edca149943e8b9510f06c0acbaab853a6b1948b83c9",
+    "all_precision_sweeps.csv": "f8f31db1efe54f1b794269c0f29fa85d504a1a6cd71ef63b2157f08a62c9c7b5"
+  }
+}
