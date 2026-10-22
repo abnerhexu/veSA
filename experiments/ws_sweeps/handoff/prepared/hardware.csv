@@ -1,0 +1,6 @@
+name,physical_depth,rows,columns,max_k,physical_pes,input_product_lanes,numerical_fusion_length,operand_passes,segment_buffers,weights_per_pe
+ws16x2,16,16,2,256,32,32,32,1,2,4
+ws16x4,16,16,4,256,64,64,32,1,2,4
+ws16x8,16,16,8,256,128,128,32,1,2,4
+ws16x16,16,16,16,256,256,256,32,1,2,4
+ws16x32,16,16,32,256,512,512,32,1,2,4

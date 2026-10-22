@@ -9,6 +9,7 @@ import random
 import shutil
 import subprocess
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -20,6 +21,14 @@ KS = (32, 64, 128, 256)
 ROWS = 16
 PHYSICAL_DEPTH = 16
 MAX_K = 256
+
+
+def source_paths():
+    return [ROOT / "build.mill", HERE / "prepare_area.py",
+            HERE / "scala/WSReuseExperimentMesh.scala",
+            HERE / "scala/GenerateWSReuse.scala",
+            HERE / "test/WSReusePowerSpec.scala",
+            ROOT / "src/main/scala/gemmini/tensorcore/TensorArithmetic.scala"]
 
 
 def sha(path):
@@ -83,11 +92,6 @@ def manifest(out, seed):
                                   vector_sha256=sha(vector_path)))
     table(out / "hardware.csv", hardware)
     table(out / "workloads.csv", workloads)
-    inputs = [ROOT / "build.mill", HERE / "prepare_area.py",
-              HERE / "scala/WSReuseExperimentMesh.scala",
-              HERE / "scala/GenerateWSReuse.scala",
-              HERE / "test/WSReusePowerSpec.scala",
-              ROOT / "src/main/scala/gemmini/tensorcore/TensorArithmetic.scala"]
     payload = dict(base_commit="f197fdfc52118d654740ac747134e207bf0483e7",
                    physical_depth=PHYSICAL_DEPTH, rows=ROWS, widths=list(WIDTHS),
                    k_values=list(KS), max_k=MAX_K, format="e4m3-f32",
@@ -97,10 +101,41 @@ def manifest(out, seed):
                    overlap_definition="cycles with next-segment exponent lane and current-segment sum lane both active",
                    throughput_definition="2*M*N*K / measured request-to-result cycles",
                    power_definition="OpenSTA pre-layout activity estimate over checked request-to-result VCD window",
-                   source_sha256={str(path.relative_to(ROOT)): sha(path) for path in inputs},
+                   source_sha256={str(path.relative_to(ROOT)): sha(path)
+                                  for path in source_paths()},
                    hardware_points=len(hardware), workload_points=len(workloads), seed=seed)
     (out / "manifest.json").write_text(json.dumps(payload, indent=2) + "\n")
     return payload
+
+
+def validate_manifest(out):
+    path = out / "manifest.json"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"missing {path}; run the prepare stage or copy handoff/prepared first")
+    payload = json.loads(path.read_text())
+    expected = payload.get("source_sha256", {})
+    current = {str(source.relative_to(ROOT)): sha(source)
+               for source in source_paths()}
+    if current != expected:
+        changed = sorted(set(current) | set(expected))
+        changed = [name for name in changed if current.get(name) != expected.get(name)]
+        raise RuntimeError("prepared inputs do not match this checkout: " + ", ".join(changed))
+    return payload
+
+
+def tool_identity(binary, version_args):
+    binary = Path(binary).resolve()
+    output = subprocess.check_output(
+        [str(binary), *version_args], text=True, stderr=subprocess.STDOUT).strip()
+    return {"path": str(binary), "sha256": sha(binary), "version": output}
+
+
+def record_environment(out, section, values):
+    path = out / "environment.json"
+    payload = json.loads(path.read_text()) if path.exists() else {}
+    payload[section] = values
+    path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
 def run(argv, env=None):
@@ -123,6 +158,9 @@ def generate_rtl(out, widths):
         run(("mill", "--no-server", "-j", "1", "wsExperiments.runMain",
              "gemmini.wsexperiments.GenerateWSReuse", PHYSICAL_DEPTH, ROWS,
              columns, MAX_K, target))
+        rtl = target / "WSReuseExperimentMesh.sv"
+        if not rtl.exists() or rtl.stat().st_size == 0:
+            raise RuntimeError(f"RTL generation did not produce {rtl}")
 
 
 def simulate(out, widths, ks):
@@ -134,17 +172,28 @@ def simulate(out, widths, ks):
             env.update(WS_SWEEP_COLUMNS=str(columns), WS_SWEEP_K=str(k),
                        WS_SWEEP_VECTOR=str((point / "vector.tsv").resolve()),
                        WS_SWEEP_RUNTIME=str((point / "runtime.csv").resolve()))
+            vcd_root = ROOT / "out/wsExperiments/test/testOnly.dest"
+            before = {path: (path.stat().st_mtime_ns, path.stat().st_size)
+                      for path in vcd_root.rglob("*.vcd")} if vcd_root.exists() else {}
+            started = time.time_ns()
             run(("mill", "--no-server", "-j", "1", "wsExperiments.test.testOnly",
                  "gemmini.wsexperiments.WSReusePowerSpec"), env)
-            candidates = sorted((ROOT / "out/wsExperiments/test/testOnly.dest").rglob("*.vcd"),
-                                key=lambda path: path.stat().st_mtime)
+            candidates = [path for path in vcd_root.rglob("*.vcd")
+                          if path not in before or
+                          (path.stat().st_mtime_ns, path.stat().st_size) != before[path]]
+            candidates.sort(key=lambda path: path.stat().st_mtime_ns)
             if not candidates:
-                raise RuntimeError("Chiseltest did not emit a VCD")
+                raise RuntimeError(
+                    f"Chiseltest did not emit a fresh VCD after {started} for {point}")
             shutil.copy2(candidates[-1], point / "activity-raw-2ps.vcd")
             scale_vcd(candidates[-1], point / "activity.vcd")
 
 
 def synthesize(out, yosys, liberty, widths):
+    record_environment(out, "synthesis", {
+        "yosys": tool_identity(yosys, ("-V",)),
+        "liberty": {"path": str(liberty), "sha256": sha(liberty)},
+    })
     for columns in widths:
         root = out / f"ws16x{columns}"
         rtl = root / "rtl/WSReuseExperimentMesh.sv"
@@ -158,13 +207,27 @@ def synthesize(out, yosys, liberty, widths):
             f"tee -o {root/'stat.json'} stat -json -liberty {liberty}",
             f"write_verilog -noattr {root/'mapped.v'}")) + "\n")
         run((yosys, "-Q", "-T", "-s", script))
+        for result in (root / "stat.json", root / "mapped.v"):
+            if not result.exists() or result.stat().st_size == 0:
+                raise RuntimeError(f"synthesis did not produce {result}")
 
 
 def power(out, openroad, liberty, tech_lef, cell_lef, widths, ks):
+    record_environment(out, "power", {
+        "openroad": tool_identity(openroad, ("-version",)),
+        "liberty": {"path": str(liberty), "sha256": sha(liberty)},
+        "tech_lef": {"path": str(tech_lef), "sha256": sha(tech_lef)},
+        "cell_lef": {"path": str(cell_lef), "sha256": sha(cell_lef)},
+    })
     for columns in widths:
         root = out / f"ws16x{columns}"
+        if not (root / "mapped.v").exists():
+            raise FileNotFoundError(f"missing mapped netlist: {root/'mapped.v'}")
         for k in ks:
             point = root / f"k{k}"
+            for required in (point / "runtime.csv", point / "activity.vcd"):
+                if not required.exists():
+                    raise FileNotFoundError(f"missing simulation output: {required}")
             runtime = first_csv_row(point / "runtime.csv")
             # Scaled VCD uses 1 ps units and a 10,000 ps full clock cycle.
             begin = int(runtime["begin_cycle"]) * 10_000
@@ -182,6 +245,10 @@ def power(out, openroad, liberty, tech_lef, cell_lef, widths, ks):
                 f"report_power -digits 9 -format json > {point/'power.json'}",
                 f"report_power -digits 9 > {point/'power.txt'}", "exit")) + "\n")
             run((openroad, "-exit", script))
+            for result in (point / "annotation.txt", point / "power.json",
+                           point / "power.txt"):
+                if not result.exists() or result.stat().st_size == 0:
+                    raise RuntimeError(f"power analysis did not produce {result}")
 
 
 def collect(out, widths, ks):
@@ -249,8 +316,7 @@ def main():
     ks = (args.k,) if args.k else KS
     if args.stage == "prepare": manifest(out, args.seed)
     else:
-        if not (out / "manifest.json").exists():
-            manifest(out, args.seed)
+        validate_manifest(out)
         if args.stage == "rtl": generate_rtl(out, widths)
         elif args.stage == "simulate": simulate(out, widths, ks)
         elif args.stage == "synth":

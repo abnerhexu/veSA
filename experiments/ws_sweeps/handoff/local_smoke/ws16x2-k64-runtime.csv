@@ -1,0 +1,2 @@
+physical_depth,rows,columns,k,begin_cycle,result_cycle,cycles,accepted_slices,overlap_cycles,operations,result_check
+16,16,2,64,3,301,298,64,66,4096,passed

@@ -4,6 +4,49 @@ This experiment branch starts from Blackwell WS v2 commit `f197fdf`.  It keeps
 the released `TensorMesh` unchanged and adds an isolated experiment target.
 No FP32/TF32/FP64 A/B path is introduced.
 
+## Handoff contract
+
+Use the `experiments/ws-sweeps` branch, tagged `ws-sweeps-handoff-v1`, and run
+commands from the veSA submodule root.  Do not run this flow from another branch:
+the prepared-input manifest hashes `build.mill`, the experiment RTL/test/driver
+and `TensorArithmetic.scala`, and every stage after `prepare` rejects a source
+mismatch.
+
+The repository already contains the completed B results and local A validation
+artifacts.  A large node only needs to run the five-width RTL/activity/PPA flow;
+it must not rerun B unless the weight file, quantizer or arithmetic model changes.
+
+Required tools and resource policy:
+
+- Java 17 and Mill 1.3.0 (pinned by `build.mill`).
+- Python 3 with NumPy for B verification/regeneration; A's handoff driver uses
+  only the standard library and the checked-in integer reference model.
+- Verilator; local validation used 5.052.  The wrapper under
+  `scripts/tensorcore-verilator` handles the Chiseltest compatibility define.
+- Yosys with ABC, an OpenROAD build providing OpenSTA/VCD power commands, and a
+  mutually consistent Liberty, technology LEF and standard-cell LEF.  The flow
+  was written for `sky130_fd_sc_hd` TT/1.8 V/25 C.
+- Run one experiment process at a time.  Mill always uses `--no-server -j 1`,
+  test JVM heap is limited to 1536 MiB, and native Verilator make uses `-j 4`.
+- Reserve enough disk for 20 raw and time-scaled VCDs plus five mapped netlists.
+
+Before starting, verify the checkout and tools:
+
+```sh
+git status --short
+git describe --tags --exact-match
+java -version
+mill --version
+verilator --version
+
+mill --no-server -j 1 wsExperiments.compile
+python3 -m unittest discover -v -s experiments/ws_sweeps -p 'test_*.py'
+```
+
+The first command must show no experiment-branch modifications, and the tag
+must be `ws-sweeps-handoff-v1`.  Preserve any unrelated work by using a separate
+Git worktree rather than switching a dirty checkout.
+
 ## A. Physical width and K reuse
 
 `WSReuseExperimentMesh` separates the 16-row physical K dimension from the
@@ -26,27 +69,49 @@ The handoff matrix contains five hardware points (`16x2`, `16x4`, `16x8`,
 `16x16`, `16x32`) and four workloads per point (K=32/64/128/256).  The logical M
 dimension is 16, FP32 C/D is retained, and useful work is `2*M*N*K` operations.
 
-On the large-memory node, run each stage serially:
+On the large-memory node, define absolute tool/PDK paths and run each stage
+serially.  `WS_OUT` may be on a large scratch filesystem:
 
 ```sh
-python3 experiments/ws_sweeps/prepare_area.py prepare --output out/ws-sweeps-area
-python3 experiments/ws_sweeps/prepare_area.py rtl --output out/ws-sweeps-area
-python3 experiments/ws_sweeps/prepare_area.py simulate --output out/ws-sweeps-area
+export WS_OUT="$PWD/out/ws-sweeps-area"
+export YOSYS=/path/to/oss-cad-suite/bin/yosys
+export OPENROAD=/path/to/OpenROAD/bin/openroad
+export LIBERTY=/path/to/sky130_fd_sc_hd__tt_025C_1v80.lib
+export TECH_LEF=/path/to/sky130_fd_sc_hd__nom.tlef
+export CELL_LEF=/path/to/sky130_fd_sc_hd.lef
+
+test -x "$YOSYS" && test -x "$OPENROAD"
+test -f "$LIBERTY" && test -f "$TECH_LEF" && test -f "$CELL_LEF"
+
+python3 experiments/ws_sweeps/prepare_area.py prepare --output "$WS_OUT"
+python3 experiments/ws_sweeps/prepare_area.py rtl --output "$WS_OUT"
+python3 experiments/ws_sweeps/prepare_area.py simulate --output "$WS_OUT"
 
 python3 experiments/ws_sweeps/prepare_area.py synth \
-  --output out/ws-sweeps-area \
-  --yosys /path/to/oss-cad-suite/bin/yosys \
-  --liberty /path/to/sky130_fd_sc_hd__tt_025C_1v80.lib
+  --output "$WS_OUT" --yosys "$YOSYS" --liberty "$LIBERTY"
 
 python3 experiments/ws_sweeps/prepare_area.py power \
-  --output out/ws-sweeps-area \
-  --openroad /path/to/oss-cad-suite/bin/openroad \
-  --liberty /path/to/sky130_fd_sc_hd__tt_025C_1v80.lib \
-  --tech-lef /path/to/sky130_fd_sc_hd__nom.tlef \
-  --cell-lef /path/to/sky130_fd_sc_hd.lef
+  --output "$WS_OUT" --openroad "$OPENROAD" \
+  --liberty "$LIBERTY" --tech-lef "$TECH_LEF" --cell-lef "$CELL_LEF"
 
-python3 experiments/ws_sweeps/prepare_area.py collect --output out/ws-sweeps-area
+python3 experiments/ws_sweeps/prepare_area.py collect --output "$WS_OUT"
 ```
+
+`handoff/prepared/` contains the already generated seed-20261021 manifest and
+all 20 checked vectors.  To resume without regenerating them, copy that directory
+to an empty output directory instead of running `prepare`:
+
+```sh
+mkdir -p "$WS_OUT"
+cp -a experiments/ws_sweeps/handoff/prepared/. "$WS_OUT"/
+python3 experiments/ws_sweeps/prepare_area.py rtl --output "$WS_OUT"
+```
+
+All stages accept `--columns 2|4|8|16|32`; `simulate` and `power` also accept
+`--k 32|64|128|256`.  These selectors support recovery of one failed point.
+Rerunning a selected stage overwrites that point's generated output.  Run the
+final `collect` without selectors so it requires all five area results and all
+20 checked power points.
 
 `prepare` writes source hashes, `hardware.csv`, `workloads.csv` and one checked
 input/output vector per workload.  `simulate` verifies every output, records the
@@ -57,26 +122,47 @@ absolute area, power, energy, operations/cycle, TOPS and both normalized values
 per mm².  Collection fails instead of silently omitting a point if any selected
 area, checked runtime, power result or activity annotation is missing.
 
+`synth` records the Yosys executable/version/hash and Liberty hash in
+`environment.json`; `power` adds the OpenROAD executable/version/hash and all
+three PDK-file hashes.  Keep this file with `summary.csv`.  The expected final
+inventory is five `stat.json`/`mapped.v` pairs, 20 `runtime.csv` files, 20 scaled
+activity VCDs, 20 nonempty `annotation.txt`/`power.json` pairs, and a 20-row
+`summary.csv`.  Every runtime row must say `result_check=passed`; K>32 rows must
+have `overlap_cycles > 0`.
+
 The power values are pre-layout OpenSTA estimates at an assumed 100 MHz with
 0.1 ns input transition and 0.01 pF output load.  They are not Fmax, STA closure
 or post-layout power results.  Inspect `annotation.txt` before accepting a point;
 an unannotated or failed output check must not enter the final CSV.
+
+The checked-in `handoff/local_smoke/` directory preserves the completed
+16x2/K=64 runtime and compressed 16x2 RTL export.  It is validation evidence,
+not a substitute for generating and measuring all five widths on the large
+node.  Its README records original and compressed hashes.
 
 ## B. Precision sweeps
 
 The checked-in `results/` directory is the original synthetic arithmetic stress
 corpus and remains useful for unit-level regression.  The primary experiment is
 now `qwen_results/`, generated from the real BF16 checkpoint supplied outside
-the repository.  Run it with:
+the repository.  The checked-in CSV and manifest are the deliverable.  To verify
+them without rerunning the 465-point sweep:
 
 ```sh
-../.venv/bin/python -m unittest -v \
+python3 -m unittest -v experiments/ws_sweeps/test_qwen_outputs.py
+```
+
+Only regenerate B when its inputs or implementation change.  The full
+regeneration command is:
+
+```sh
+python3 -m unittest -v \
   experiments/ws_sweeps/test_precision.py \
   experiments/ws_sweeps/test_qwen_corpus.py \
   experiments/ws_sweeps/test_qwen_outputs.py
 
-../.venv/bin/python experiments/ws_sweeps/run_qwen_precision.py \
-  --weights ../weight/model.safetensors-00001-of-00001.safetensors \
+python3 experiments/ws_sweeps/run_qwen_precision.py \
+  --weights /absolute/path/to/model.safetensors-00001-of-00001.safetensors \
   --output experiments/ws_sweeps/qwen_results
 ```
 

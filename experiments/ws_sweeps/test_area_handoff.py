@@ -7,7 +7,7 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from prepare_area import collect, manifest, scale_vcd
+from prepare_area import collect, manifest, scale_vcd, validate_manifest
 
 
 class AreaHandoffTests(unittest.TestCase):
@@ -27,6 +27,14 @@ class AreaHandoffTests(unittest.TestCase):
             self.assertTrue(all(row["segment_buffers"] == "2" for row in hardware))
             self.assertTrue(all(row["weights_per_pe"] == "4" for row in hardware))
             self.assertTrue(all(Path(directory, row["vector"]).exists() for row in workloads))
+            self.assertEqual(validate_manifest(output), payload)
+
+            stored = json.loads((output / "manifest.json").read_text())
+            first = next(iter(stored["source_sha256"]))
+            stored["source_sha256"][first] = "0" * 64
+            (output / "manifest.json").write_text(json.dumps(stored))
+            with self.assertRaisesRegex(RuntimeError, "do not match this checkout"):
+                validate_manifest(output)
 
     def test_vcd_scaling_converts_two_ps_cycle_to_ten_ns(self):
         with tempfile.TemporaryDirectory() as directory:
