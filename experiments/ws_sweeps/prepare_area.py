@@ -31,8 +31,13 @@ def table(path, rows):
     fields = list(dict.fromkeys(key for row in rows for key in row))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
         writer.writeheader(); writer.writerows(rows)
+
+
+def first_csv_row(path):
+    with Path(path).open() as stream:
+        return next(csv.DictReader(stream))
 
 
 def finite_e4m3(rng):
@@ -61,7 +66,8 @@ def manifest(out, seed):
                      rows=ROWS, columns=columns, max_k=MAX_K,
                      physical_pes=PHYSICAL_DEPTH * columns,
                      input_product_lanes=PHYSICAL_DEPTH * columns,
-                     numerical_fusion_length=32, operand_passes=2)
+                     numerical_fusion_length=32, operand_passes=1,
+                     segment_buffers=2, weights_per_pe=4)
                 for columns in WIDTHS]
     workloads = []
     for columns in WIDTHS:
@@ -81,14 +87,14 @@ def manifest(out, seed):
               HERE / "scala/WSReuseExperimentMesh.scala",
               HERE / "scala/GenerateWSReuse.scala",
               HERE / "test/WSReusePowerSpec.scala",
-              ROOT / "src/main/scala/gemmini/tensorcore/TensorWSPE.scala",
               ROOT / "src/main/scala/gemmini/tensorcore/TensorArithmetic.scala"]
     payload = dict(base_commit="f197fdfc52118d654740ac747134e207bf0483e7",
                    physical_depth=PHYSICAL_DEPTH, rows=ROWS, widths=list(WIDTHS),
                    k_values=list(KS), max_k=MAX_K, format="e4m3-f32",
-                   scope="core-only; raw operands supplied twice; no SRAM/DMA",
+                   scope="core-only; left-edge A buffering; no SRAM/DMA",
                    frequency_hz=100_000_000,
                    frequency_basis="assumed for power/throughput; no STA claim",
+                   overlap_definition="cycles with next-segment exponent lane and current-segment sum lane both active",
                    throughput_definition="2*M*N*K / measured request-to-result cycles",
                    power_definition="OpenSTA pre-layout activity estimate over checked request-to-result VCD window",
                    source_sha256={str(path.relative_to(ROOT)): sha(path) for path in inputs},
@@ -159,7 +165,7 @@ def power(out, openroad, liberty, tech_lef, cell_lef, widths, ks):
         root = out / f"ws16x{columns}"
         for k in ks:
             point = root / f"k{k}"
-            runtime = next(csv.DictReader((point / "runtime.csv").open()))
+            runtime = first_csv_row(point / "runtime.csv")
             # Scaled VCD uses 1 ps units and a 10,000 ps full clock cycle.
             begin = int(runtime["begin_cycle"]) * 10_000
             end = int(runtime["result_cycle"]) * 10_000
@@ -182,32 +188,44 @@ def collect(out, widths, ks):
     areas = {}
     for columns in widths:
         stat = out / f"ws16x{columns}/stat.json"
-        if stat.exists():
-            areas[columns] = json.loads(stat.read_text())["design"]["area"]
+        if not stat.exists():
+            raise FileNotFoundError(f"missing synthesized area: {stat}")
+        areas[columns] = json.loads(stat.read_text())["design"]["area"]
     rows = []
     for columns in widths:
         for k in ks:
-            runtime = out / f"ws16x{columns}/k{k}/runtime.csv"
+            point = out / f"ws16x{columns}/k{k}"
+            runtime = point / "runtime.csv"
             if not runtime.exists():
-                continue
-            row = next(csv.DictReader(runtime.open()))
+                raise FileNotFoundError(f"missing checked runtime: {runtime}")
+            row = first_csv_row(runtime)
+            if row.get("result_check") != "passed":
+                raise RuntimeError(f"failed result check: {runtime}")
             cycles = int(row["cycles"]); operations = int(row["operations"])
             area = areas.get(columns, "")
             power_path = out / f"ws16x{columns}/k{k}/power.json"
-            total_power = ""
-            energy = ""
-            if power_path.exists():
-                total_power = json.loads(power_path.read_text())["Total"]["total"]
-                energy = float(total_power) * cycles / 100_000_000
+            annotation = point / "annotation.txt"
+            if not power_path.exists() or not annotation.exists():
+                raise FileNotFoundError(f"missing power/annotation output for {point}")
+            if not annotation.read_text().strip():
+                raise RuntimeError(f"empty activity annotation: {annotation}")
+            total_power = json.loads(power_path.read_text())["Total"]["total"]
+            energy = float(total_power) * cycles / 100_000_000
+            throughput_ops_s = operations / cycles * 100_000_000
+            area_mm2 = float(area) / 1e6
             rows.append(dict(columns=columns, k=k, cycles=cycles,
                              operations=operations,
                              operations_per_cycle=operations / cycles,
                              area_um2=area,
-                             operations_per_cycle_per_mm2=(operations / cycles) /
-                             (float(area) / 1e6) if area != "" else "",
+                             throughput_ops_s=throughput_ops_s,
+                             throughput_tops=throughput_ops_s / 1e12,
+                             operations_per_cycle_per_mm2=(operations / cycles) / area_mm2,
+                             throughput_tops_per_mm2=throughput_ops_s / 1e12 / area_mm2,
                              power_w=total_power, energy_j=energy,
-                             energy_per_operation_j=(float(energy) / operations)
-                             if energy != "" else "",
+                             power_density_w_per_mm2=float(total_power) / area_mm2,
+                             energy_per_operation_j=float(energy) / operations,
+                             overlap_cycles=row["overlap_cycles"],
+                             activity_annotation="present",
                              note="pre-layout activity estimate; assumed 100 MHz; no STA"))
     table(out / "summary.csv", rows)
 

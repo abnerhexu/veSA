@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import random
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -9,7 +10,7 @@ sys.path.insert(0, str(ROOT / "modeling/tensorcore"))
 
 from precision_model import (configurable_dot, configurable_fdpa,
                              configurable_gdfs, configurable_gdfs_dot,
-                             fp32_bits, os_dot)
+                             error_metrics, fp32_bits, os_dot)
 from reference import dot, fdpa
 from grouped_reference import gst_fdpa
 
@@ -33,6 +34,15 @@ class PrecisionSweepModelTests(unittest.TestCase):
             alpha = [neutral] * scales
             beta = [neutral] * scales
             c = fp32_bits(0.375)
+            self.assertEqual(configurable_gdfs(a, b, c, alpha, beta,
+                                                6, 35, 16, nvfp4),
+                             gst_fdpa(a, b, c, alpha, beta, nvfp4))
+        a = [(index * 3 + 1) & 15 for index in range(64)]
+        b = [(index * 11 + 2) & 15 for index in range(64)]
+        for nvfp4, alpha, beta in (
+                (False, [123, 132], [130, 121]),
+                (True, [0x30, 0x41, 0x28, 0x4a], [0x3c, 0x25, 0x48, 0x32])):
+            c = fp32_bits(-0.625)
             self.assertEqual(configurable_gdfs(a, b, c, alpha, beta,
                                                 6, 35, 16, nvfp4),
                              gst_fdpa(a, b, c, alpha, beta, nvfp4))
@@ -70,6 +80,33 @@ class PrecisionSweepModelTests(unittest.TestCase):
         self.assertEqual(len(outputs), 5)
         self.assertTrue(all(0 <= value < 1 << 32 for value in outputs))
 
+    def test_cross_scale_group_is_not_split_into_inter_group_terms(self):
+        rng = random.Random(1)
+        different = False
+        for _ in range(16):
+            a = [rng.randrange(16) for _ in range(64)]
+            b = [rng.randrange(16) for _ in range(64)]
+            alpha = [rng.randrange(120, 135) for _ in range(2)]
+            beta = [rng.randrange(120, 135) for _ in range(2)]
+            combined = configurable_gdfs(a, b, 0, alpha, beta, 3, 8, 20, False)
+            split = configurable_gdfs(a, b, 0, alpha, beta, 3, 8, 16, False)
+            different |= combined != split
+        self.assertTrue(different)
+
+    def test_gdfs_c_decoupling_preserves_c_at_second_alignment(self):
+        rng = random.Random(2)
+        different = False
+        for trial in range(16):
+            a = [rng.randrange(16) for _ in range(64)]
+            b = [rng.randrange(16) for _ in range(64)]
+            c = fp32_bits((-.5 if trial % 2 else .5) * 2 ** rng.randrange(-8, 9))
+            alpha = [rng.randrange(120, 135) for _ in range(2)]
+            beta = [rng.randrange(120, 135) for _ in range(2)]
+            fused = configurable_gdfs(a, b, c, alpha, beta, 6, 6, 16, False, True)
+            decoupled = configurable_gdfs(a, b, c, alpha, beta, 6, 6, 16, False, False)
+            different |= fused != decoupled
+        self.assertTrue(different)
+
     def test_c_decoupled_preserves_small_dot_added_to_large_c(self):
         a = [0x08] * 32
         b = [0x08] * 32
@@ -83,6 +120,13 @@ class PrecisionSweepModelTests(unittest.TestCase):
         a = [0x38, 0xb8]
         b = [0x38, 0x38]
         self.assertEqual(os_dot(a, b, fp32_bits(0.5)), fp32_bits(0.5))
+
+    def test_signed_relative_error_uses_signed_reference(self):
+        metrics = error_metrics(
+            [fp32_bits(0.5), fp32_bits(-0.5)],
+            [fp32_bits(1.0), fp32_bits(-1.0)], "x")
+        self.assertEqual(metrics["x_signed_mean_relative_error"], -0.5)
+        self.assertEqual(metrics["x_mean_signed_error_over_abs_reference"], 0.0)
 
 
 if __name__ == "__main__":

@@ -7,17 +7,17 @@
   "fp8_K": 256,
   "fp4_K": 64,
   "input_policy": "finite signed raw encodings with exponent spread; signed nonzero FP32 C",
-  "relative_error_denominator": "abs(reference); zero references excluded and counted",
+  "relative_error": "signed MRE uses reference; MARE and directional signed error use abs(reference); zero references excluded and counted",
   "os_baseline": "exact low-precision product followed by sequential IEEE FP32 RNE FMA",
   "source_sha256": {
-    "precision_model.py": "bd050a452566ea62e96dbc1682e685f61e97d733b04ccef5767b0ccb6dd72e21",
-    "run_precision.py": "ae68f9c5334b517579b63222d7b83e7ad610ef32e7c93d26ab28659b6723d6d8"
+    "precision_model.py": "ca694bc3f74a1ceb9cbb2614a9a5ba6736a0fbf936e89bbda6445c2efdc49245",
+    "run_precision.py": "51a92a2ebde06b95448cb6b5b53204ccf4d6b2326065d2e81504bbb9d441c10d"
   },
   "files": {
-    "fp8_f_sweep.csv": "3a2a961b3997b25bd32ac0b73ea503305b6a4d9684b8dc28d0d07f4c60902541",
-    "fp4_g_f_sweep.csv": "5b1d440e12a2fbf33328f861cb1daabbccd3cbaa4053bd4b9d0968abe886eed1",
-    "fp4_gs_sweep.csv": "1d89753d1881a9d23db890edc366f5b825397703d96cc34ebe585e6a2430cbca",
-    "c_coupling_sweep.csv": "3be734903eb175297b938edca149943e8b9510f06c0acbaab853a6b1948b83c9",
-    "all_precision_sweeps.csv": "f8f31db1efe54f1b794269c0f29fa85d504a1a6cd71ef63b2157f08a62c9c7b5"
+    "fp8_f_sweep.csv": "e91cac2e50a7d734647568967c6faeace8c69f294c2a5e4d7c552ccae8383e8b",
+    "fp4_g_f_sweep.csv": "a6b43ab4afafa0ec0e833bac1e401576f158b02a24d829d1f43978f06cec0ad8",
+    "fp4_gs_sweep.csv": "07e96cda11bcc6cc047a63f0989ea264ae3b35e4509ec208d329b3b2bf76d182",
+    "c_coupling_sweep.csv": "add1b29e66b98171284161049f89481fa0a3435b39e5eeb05f5e9ee0af888fa1",
+    "all_precision_sweeps.csv": "f9828b29ca0976d9bdc127961b59599bdce86e4f3f77110835b43dbe91b22e68"
   }
 }

@@ -19,8 +19,8 @@ class QwenOutputTests(unittest.TestCase):
             "fp8_f_sweep.csv": 25,
             "fp4_g_f_sweep.csv": 240,
             "fp4_gs_sweep.csv": 50,
-            "c_coupling_sweep.csv": 50,
-            "all_precision_sweeps.csv": 365,
+            "c_coupling_sweep.csv": 150,
+            "all_precision_sweeps.csv": 465,
         }
         for name, count in expected_rows.items():
             path = RESULTS / name
@@ -31,6 +31,11 @@ class QwenOutputTests(unittest.TestCase):
                              {16, 32, 64, 128, 256})
             self.assertTrue(all(int(row["M"]) == int(row["N"]) == 16
                                 for row in rows))
+            self.assertTrue(all("vs_blackwell_mean_signed_error_over_abs_reference" in row
+                                for row in rows))
+            if name == "c_coupling_sweep.csv":
+                self.assertEqual({row["format"] for row in rows},
+                                 {"e4m3", "mxfp4", "nvfp4"})
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             self.assertEqual(digest, manifest["files"][name])
 

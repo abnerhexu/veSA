@@ -64,21 +64,23 @@
   "fp8_quantization": "nearest finite E4M3; numeric ties choose lower value",
   "mxfp4_quantization": "E2M1 with per-row/per-column 32-value E8M0 ceil scale",
   "nvfp4_quantization": "E2M1 with per-row/per-column 16-value UE4M3 ceil scale",
+  "nvfp4_tensor_scale": "fixed to 1.0; the external FP32 tensor scale is outside MMA",
   "short_fp4_K": "K<64 is zero-padded to one Blackwell 64-lane GDFS instruction",
-  "relative_error_denominator": "abs(reference); zero references excluded and counted",
+  "relative_error": "signed MRE uses reference; MARE and directional signed error use abs(reference); zero references excluded and counted",
   "blackwell_reference": "FP8 F=25; FP4 G=6,F=35,GS=16,C-fused",
   "os_baseline": "exact low-precision product followed by sequential IEEE FP32 RNE FMA",
   "source_sha256": {
-    "precision_model.py": "fb4776ef672735d5790d9ff4fcf0cf502973b3cbd20d6d367af3b75035e6ebd1",
+    "precision_model.py": "ca694bc3f74a1ceb9cbb2614a9a5ba6736a0fbf936e89bbda6445c2efdc49245",
     "qwen_corpus.py": "1e98baf6831168a7d5309b2f0ed40cd4b254d363865c9f8006659ed29b6897bc",
-    "run_qwen_precision.py": "bc310a858680b5d5d8adcc4a153b9396aa4ab9cc543abc09ea4196dfaec5c227"
+    "run_precision.py": "51a92a2ebde06b95448cb6b5b53204ccf4d6b2326065d2e81504bbb9d441c10d",
+    "run_qwen_precision.py": "3e24ce60d76d67475ef54bca639d0f98d50e3fa022482c9665566fe9b3d866cd"
   },
   "files": {
-    "fp8_f_sweep.csv": "cd8e8f0ffc607236e2e6f6c639a81c1296c43269b0e9312ada1a9d8622fa960b",
-    "fp4_g_f_sweep.csv": "29d2e77b48aeb0ef3c33b20accf6208d4a009d20b24af06d9b6eec733c3577f5",
-    "fp4_gs_sweep.csv": "4791df7557349f6cc4f7cc5028fbd1464d6708cab489afb3db58ee7b39d77679",
-    "c_coupling_sweep.csv": "5d655c9bd6d892fdf9b4085f3bdbc5b60580f3f6888b9646261897f619cac924",
-    "all_precision_sweeps.csv": "ab4cc256744da64de62e1260aad5f47e0f106ce4adfb8a2473ad9a0e47c63b9e"
+    "fp8_f_sweep.csv": "c4b10a02b9bafee89b72be9deac441d1793e91816110bc614ed5883de5f704b3",
+    "fp4_g_f_sweep.csv": "1881c4fad9c5c9f910dfec7c0798ae2fee32cca91e71cb281b5af9d83d62dfc9",
+    "fp4_gs_sweep.csv": "7779a3b3cfde14ef10b1193b45f58df71091160a4d83a0917c7cdc77cbaf27c9",
+    "c_coupling_sweep.csv": "e84ac45388bd131d81c7f39038a7853ce54614a77198b3156cff5a08bb8b2f5d",
+    "all_precision_sweeps.csv": "f1879d57202f6f269a9283aa7b720a7ab35173e62f2847bf9c59ed79e880d35c"
   },
-  "rows": 365
+  "rows": 465
 }

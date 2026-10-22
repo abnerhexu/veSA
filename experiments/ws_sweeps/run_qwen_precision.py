@@ -83,6 +83,18 @@ def run_sweeps(panels):
                 for a, b, c, alpha, beta in grouped]
             os_fp4 = [os_fp4_dot(a, b, c, alpha, beta, nvfp4)
                       for a, b, c, alpha, beta in grouped]
+            for coupling in ("c_fused", "c_decoupled"):
+                fused = coupling == "c_fused"
+                for fractional_bits in COUPLING_F:
+                    candidate = [configurable_gdfs_dot(
+                        a, b, c, alpha, beta, 6, fractional_bits, 16,
+                        nvfp4, c_fused=fused)
+                        for a, b, c, alpha, beta in grouped]
+                    coupling_rows.append(metrics_row(
+                        "c_coupling", fmt, candidate, blackwell_fp4, os_fp4,
+                        **common_parameters(k, len(panels), F=fractional_bits,
+                                            G=6, GS=16,
+                                            coupling=coupling)))
             for group_bits in GROUP_BITS:
                 for fractional_bits in GROUP_F:
                     candidate = [configurable_gdfs_dot(
@@ -135,7 +147,8 @@ def main():
         all_rows.extend(rows)
     write_csv(args.output / "all_precision_sweeps.csv", all_rows)
     output_names = (*files, "all_precision_sweeps.csv")
-    sources = ("precision_model.py", "qwen_corpus.py", "run_qwen_precision.py")
+    sources = ("precision_model.py", "qwen_corpus.py", "run_precision.py",
+               "run_qwen_precision.py")
     manifest = {
         "base_commit": "f197fdfc52118d654740ac747134e207bf0483e7",
         "weights": {
@@ -152,8 +165,9 @@ def main():
         "fp8_quantization": "nearest finite E4M3; numeric ties choose lower value",
         "mxfp4_quantization": "E2M1 with per-row/per-column 32-value E8M0 ceil scale",
         "nvfp4_quantization": "E2M1 with per-row/per-column 16-value UE4M3 ceil scale",
+        "nvfp4_tensor_scale": "fixed to 1.0; the external FP32 tensor scale is outside MMA",
         "short_fp4_K": "K<64 is zero-padded to one Blackwell 64-lane GDFS instruction",
-        "relative_error_denominator": "abs(reference); zero references excluded and counted",
+        "relative_error": "signed MRE uses reference; MARE and directional signed error use abs(reference); zero references excluded and counted",
         "blackwell_reference": "FP8 F=25; FP4 G=6,F=35,GS=16,C-fused",
         "os_baseline": "exact low-precision product followed by sequential IEEE FP32 RNE FMA",
         "source_sha256": {

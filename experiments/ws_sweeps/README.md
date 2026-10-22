@@ -7,20 +7,20 @@ No FP32/TF32/FP64 A/B path is introduced.
 ## A. Physical width and K reuse
 
 `WSReuseExperimentMesh` separates the 16-row physical K dimension from the
-32-element E4M3 numerical fusion block.  For every FDA block the producer sends
-the raw operands twice, following `io.expectedIndex`:
+32-element E4M3 numerical fusion block.  Two segment buffers each hold one
+32-term FDA as two physical chunks.  Every PE therefore has one multiplier lane
+and four stationary weight bytes: two chunks in each of two segment banks.  A
+is retained only in two 32-term left-edge buffers; products and complete-K
+vectors are never retained.
 
-1. the exponent pass loads one 16-element physical chunk and propagates the
-   narrow maximum lane;
-2. after both physical chunks establish the final `e_max`, the significand pass
-   reloads the same two chunks and propagates the fixed-point sum;
-3. the block is normalized once, and the rounded FP32 result becomes C for the
-   next block when K is 64, 128 or 256.
-
-Only the current 16-element A chunk, two PE-local stationary B banks, per-output
-`e_max`/sum/classification state and counters are retained.  The design contains
-no product buffer and no full-K raw operand buffer.  Consequently, changing K
-changes cycles and activity but not the synthesized circuit for a fixed width.
+The producer sends each raw K slice once.  The narrow lane computes a
+product-only maximum for the next segment while the multiplier/fixed-sum lane
+replays the current segment.  When replay begins, the boundary logic combines
+the precomputed product maximum with the newly normalized prior C exponent to
+obtain the true `e_max`.  The two physical chunks share that maximum and the
+segment is normalized exactly once.  For K=64/128/256, the rounded FP32 result
+becomes C for the next 32-term segment.  The runtime CSV records cycles where
+both lanes are active and tests require nonzero overlap for K>32.
 
 The handoff matrix contains five hardware points (`16x2`, `16x4`, `16x8`,
 `16x16`, `16x32`) and four workloads per point (K=32/64/128/256).  The logical M
@@ -53,7 +53,9 @@ input/output vector per workload.  `simulate` verifies every output, records the
 request-to-result cycle window, and writes both the raw 2 ps Chiseltest VCD and a
 time-scaled 10 ns activity VCD.  `synth` maps each width once.  `power` evaluates
 each K activity window on that width's mapped netlist.  `collect` produces
-absolute area, power, energy, operations/cycle and operations/cycle/mm².
+absolute area, power, energy, operations/cycle, TOPS and both normalized values
+per mm².  Collection fails instead of silently omitting a point if any selected
+area, checked runtime, power result or activity annotation is missing.
 
 The power values are pre-layout OpenSTA estimates at an assumed 100 MHz with
 0.1 ns input transition and 0.01 pF output load.  They are not Fmax, STA closure
@@ -106,21 +108,26 @@ error, mean absolute error, RMSE and bit-exact fraction.  Relative metrics omit
 zero reference values and report their count explicitly, so positive and
 negative errors cannot silently disappear behind an absolute-only metric.
 
-Generated Qwen files (365 aggregate rows):
+Generated Qwen files (465 aggregate rows):
 
 - `fp8_f_sweep.csv`: 25 rows, F=13/16/19/22/25, C-fused E4M3.
 - `fp4_g_f_sweep.csv`: MXFP4/NVFP4, G=3..8 and F=26/29/32/35, GS=16.
 - `fp4_gs_sweep.csv`: GS=12/14/16/18/20 at G=6, F=35.
-- `c_coupling_sweep.csv`: C-fused and C-decoupled at F=6..10.
-- `all_precision_sweeps.csv`: all 365 rows in one table.
+- `c_coupling_sweep.csv`: FP8/MXFP4/NVFP4 C-fused and C-decoupled at F=6..10.
+- `all_precision_sweeps.csv`: all 465 rows in one table.
 
 The Qwen corpus shows FP8 error falling as F approaches Blackwell F=25.  In FP4,
 changing F does not repair information discarded by a small G; G=6/7/8 is
-bit-identical to Blackwell here, while G=3 has the largest error.  All swept GS
-values happen to be bit-identical on these quantized panels at G=6/F=35, so this
-corpus does not establish an accuracy distinction among GS choices.  The
-synthetic stress corpus still exposes GS-dependent arithmetic differences.
-C-decoupling materially reduces low-F error on the Qwen panels.
+bit-identical to Blackwell here, while G=3 has the largest error.  GS is kept
+independent of the MXFP4/NVFP4 storage scale block: a group crossing a format
+block first forms scaled sub-dots, then emits one G-precision group term.  This
+exposes small but nonzero GS-dependent errors on the Qwen panels.
+C-decoupling materially reduces low-F error in all three formats.
+
+`signed_mean_relative_error` uses `(candidate-reference)/reference`.
+`mean_signed_error_over_abs_reference` separately reports the direction of the
+numeric delta normalized by reference magnitude.  MARE continues to use the
+absolute delta and absolute reference.
 
 These are MMA output errors over real model weights, not an end-to-end Qwen task
 accuracy evaluation, NVIDIA GPU differential, or reproduction of Kim et al.'s

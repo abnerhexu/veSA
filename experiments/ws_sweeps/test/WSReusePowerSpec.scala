@@ -25,7 +25,11 @@ class WSReusePowerSpec extends AnyFlatSpec with ChiselScalatestTester {
       physicalDepth = 16, maxK = 256)).withAnnotations(
         TensorTestBackend.annotations :+ WriteVcdAnnotation) { dut =>
       var cycle = 0L
-      def step(): Unit = { dut.clock.step(); cycle += 1 }
+      var overlapCycles = 0L
+      def step(): Unit = {
+        if (dut.io.overlap.peek().litToBoolean) overlapCycles += 1
+        dut.clock.step(); cycle += 1
+      }
       dut.io.req.valid.poke(false.B)
       dut.io.in.valid.poke(false.B)
       dut.io.out.ready.poke(false.B)
@@ -50,7 +54,9 @@ class WSReusePowerSpec extends AnyFlatSpec with ChiselScalatestTester {
         step()
       }
       dut.io.in.valid.poke(false.B)
-      assert(accepted == 2 * k)
+      assert(accepted == k)
+      if (k > 32) assert(overlapCycles > 0,
+        s"K=$k did not overlap exponent and significand waves")
       dut.io.out.valid.expect(true.B)
       dut.io.out.bits.tag.expect(0x7171.U)
       for (row <- 0 until rows; column <- 0 until columns) {
@@ -60,8 +66,8 @@ class WSReusePowerSpec extends AnyFlatSpec with ChiselScalatestTester {
       dut.io.out.ready.poke(true.B); step(); dut.io.out.ready.poke(false.B)
       Files.createDirectories(outputPath.getParent)
       Files.writeString(outputPath,
-        "physical_depth,rows,columns,k,begin_cycle,result_cycle,cycles,accepted_slices,operations,result_check\n" +
-        s"16,$rows,$columns,$k,$begin,$resultCycle,${resultCycle-begin},$accepted,${2L*rows*columns*k},passed\n")
+        "physical_depth,rows,columns,k,begin_cycle,result_cycle,cycles,accepted_slices,overlap_cycles,operations,result_check\n" +
+        s"16,$rows,$columns,$k,$begin,$resultCycle,${resultCycle-begin},$accepted,$overlapCycles,${2L*rows*columns*k},passed\n")
     }
   }
 }

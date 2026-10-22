@@ -21,7 +21,7 @@ def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = list(dict.fromkeys(key for row in rows for key in row))
     with path.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -169,7 +169,7 @@ def main():
         "seed": args.seed, "trials": args.trials, "M": args.m, "N": args.n,
         "fp8_K": 256, "fp4_K": 64,
         "input_policy": "finite signed raw encodings with exponent spread; signed nonzero FP32 C",
-        "relative_error_denominator": "abs(reference); zero references excluded and counted",
+        "relative_error": "signed MRE uses reference; MARE and directional signed error use abs(reference); zero references excluded and counted",
         "os_baseline": "exact low-precision product followed by sequential IEEE FP32 RNE FMA",
         "source_sha256": {
             name: hashlib.sha256((Path(__file__).with_name(name)).read_bytes()).hexdigest()

@@ -50,7 +50,9 @@ class WSReuseExperimentSpec extends AnyFlatSpec with ChiselScalatestTester {
         dut.io.req.valid.poke(false.B)
 
         var accepted = 0
-        while (!dut.io.out.valid.peek().litToBoolean && accepted < 4 * k) {
+        var overlapCycles = 0
+        var drivenCycles = 0
+        while (!dut.io.out.valid.peek().litToBoolean && drivenCycles < 5000) {
           if (dut.io.in.ready.peek().litToBoolean) {
             val index = dut.io.expectedIndex.peek().litValue.toInt
             assert(index < k)
@@ -61,15 +63,20 @@ class WSReuseExperimentSpec extends AnyFlatSpec with ChiselScalatestTester {
           } else {
             dut.io.in.valid.poke(false.B)
           }
+          if (dut.io.overlap.peek().litToBoolean) overlapCycles += 1
           dut.clock.step()
+          drivenCycles += 1
         }
         dut.io.in.valid.poke(false.B)
-        assert(accepted == 2 * k, s"expected two raw-operand passes for K=$k")
+        assert(drivenCycles < 5000, s"K=$k result timed out while driving")
+        assert(accepted == k, s"expected one buffered raw-operand pass for K=$k")
         var waited = 0
         while (!dut.io.out.valid.peek().litToBoolean && waited < 500) {
           dut.clock.step(); waited += 1
         }
         assert(waited < 500, s"K=$k result timed out")
+        if (k > 32) assert(overlapCycles > 0,
+          s"K=$k did not overlap exponent and significand waves")
         dut.io.out.bits.tag.expect((0x6000 + caseIndex).U)
         for (row <- 0 until 2; column <- 0 until 2) {
           dut.io.out.bits.d(row)(column).expect(d(row * 2 + column).U)
@@ -77,6 +84,41 @@ class WSReuseExperimentSpec extends AnyFlatSpec with ChiselScalatestTester {
         dut.io.out.ready.poke(true.B)
         dut.clock.step()
         dut.io.out.ready.poke(false.B)
+      }
+    }
+  }
+
+  "A 16x4 WS experiment point" should "produce all four output columns" in {
+    test(new WSReuseExperimentMesh(rows = 2, columns = 4,
+      physicalDepth = 16, maxK = 256)).withAnnotations(TensorTestBackend.annotations) { dut =>
+      dut.io.req.valid.poke(false.B)
+      dut.io.in.valid.poke(false.B)
+      dut.io.out.ready.poke(false.B)
+      dut.clock.step()
+      dut.io.req.bits.k.poke(32.U)
+      dut.io.req.bits.tag.poke(0x6404.U)
+      for (row <- 0 until 2; column <- 0 until 4) {
+        dut.io.req.bits.c(row)(column).poke(0.U)
+      }
+      dut.io.req.valid.poke(true.B)
+      dut.clock.step()
+      dut.io.req.valid.poke(false.B)
+      var accepted = 0
+      var cycles = 0
+      while (!dut.io.out.valid.peek().litToBoolean && cycles < 2000) {
+        if (dut.io.in.ready.peek().litToBoolean) {
+          for (row <- 0 until 2) dut.io.in.bits.a(row).poke(0x38.U)
+          for (column <- 0 until 4) dut.io.in.bits.b(column).poke(0x38.U)
+          dut.io.in.valid.poke(true.B)
+          accepted += 1
+        } else dut.io.in.valid.poke(false.B)
+        dut.clock.step(); cycles += 1
+      }
+      assert(accepted == 32)
+      assert(cycles < 2000)
+      dut.io.out.bits.tag.expect(0x6404.U)
+      for (row <- 0 until 2; column <- 0 until 4) {
+        dut.io.out.bits.d(row)(column).expect(BigInt("42000000", 16).U)
       }
     }
   }
@@ -89,7 +131,8 @@ class WSReuseStructureSpec extends AnyFlatSpec {
       new WSReuseExperimentMesh(rows = 2, columns = columns,
         physicalDepth = 16, maxK = 256)).linesIterator
       .count(_.trim.startsWith("inst pes_"))
-    assert(instances(2) == 32)
-    assert(instances(4) == 64)
+    for (columns <- Seq(2, 4, 8, 16, 32)) {
+      assert(instances(columns) == 16 * columns)
+    }
   }
 }

@@ -176,7 +176,8 @@ def fp4_product_terms(a, b, alpha, beta, nvfp4=False):
 
 
 def configurable_gdfs(a, b, c, alpha, beta, group_bits=6,
-                      fractional_bits=35, group_size=16, nvfp4=False):
+                      fractional_bits=35, group_size=16, nvfp4=False,
+                      c_fused=True):
     """GDFS with independent intra-group G, inter-group F and group size."""
     assert group_bits >= 0 and fractional_bits >= 0 and group_size > 0
     block = 16 if nvfp4 else 32
@@ -185,6 +186,7 @@ def configurable_gdfs(a, b, c, alpha, beta, group_bits=6,
     for start in range(0, len(products), group_size):
         end = min(start + group_size, len(products))
         segment = start
+        scaled_segments = []
         while segment < end:
             scale_index = segment // block
             segment_end = min(end, (scale_index + 1) * block)
@@ -194,21 +196,39 @@ def configurable_gdfs(a, b, c, alpha, beta, group_bits=6,
             if special_a is not None or special_b is not None:
                 raise ValueError("precision sweeps use finite scales only")
             scaled = total * sa * sb
-            groups.append(Term(scaled, maximum + ea + eb if scaled else -139,
-                               group_bits + fa + fb))
+            scaled_segments.append(Term(
+                scaled, maximum + ea + eb if scaled else -139,
+                group_bits + fa + fb))
             assert power == maximum - group_bits
             segment = segment_end
+        if len(scaled_segments) == 1:
+            groups.append(scaled_segments[0])
+        else:
+            # GS and the storage scale block are independent. If a group spans
+            # a scale boundary, combine its scaled sub-dots at G plus the scale
+            # significand precision before emitting exactly one inter-group term.
+            scale_fraction = max(term.fraction - group_bits
+                                 for term in scaled_segments)
+            total, _, maximum = aligned_sum(
+                scaled_segments, group_bits + scale_fraction)
+            groups.append(Term(total, maximum if total else -139,
+                               group_bits + scale_fraction))
     accumulator = finite_term(c, FP32)
-    groups.append(Term(accumulator.significand,
-                       accumulator.exponent if accumulator.significand else -139,
-                       accumulator.fraction))
-    total, power, _ = aligned_sum(groups, fractional_bits)
-    return pack(total, power)
+    if c_fused:
+        groups.append(Term(accumulator.significand,
+                           accumulator.exponent if accumulator.significand else -139,
+                           accumulator.fraction))
+        total, power, _ = aligned_sum(groups, fractional_bits)
+        return pack(total, power)
+    dot, dot_power, _ = aligned_sum(groups, fractional_bits)
+    combined, power = exact_add(dot, dot_power, accumulator.significand,
+                                accumulator.exponent - accumulator.fraction)
+    return pack(combined, power)
 
 
 def configurable_gdfs_dot(a, b, c, alpha, beta, group_bits=6,
                           fractional_bits=35, group_size=16, nvfp4=False,
-                          fusion_length=64):
+                          fusion_length=64, c_fused=True):
     """Chain 64-way GDFS blocks, zero-padding only the final short block.
 
     Blackwell exposes a 64-element FP4 instruction.  K=16 and K=32 experiments
@@ -235,7 +255,8 @@ def configurable_gdfs_dot(a, b, c, alpha, beta, group_bits=6,
         chunk_alpha.extend([neutral] * (scales_per_instruction - len(chunk_alpha)))
         chunk_beta.extend([neutral] * (scales_per_instruction - len(chunk_beta)))
         c = configurable_gdfs(chunk_a, chunk_b, c, chunk_alpha, chunk_beta,
-                              group_bits, fractional_bits, group_size, nvfp4)
+                              group_bits, fractional_bits, group_size, nvfp4,
+                              c_fused)
     return c
 
 
@@ -253,6 +274,7 @@ def os_fp4_dot(a, b, c, alpha, beta, nvfp4=False):
 def error_metrics(candidate, reference, prefix):
     assert len(candidate) == len(reference)
     signed_relative = []
+    signed_error_over_magnitude = []
     absolute_relative = []
     squared = []
     absolute = []
@@ -273,12 +295,14 @@ def error_metrics(candidate, reference, prefix):
         if ref == 0.0:
             zero_reference += 1
         else:
-            signed_relative.append(delta / abs(ref))
+            signed_relative.append(delta / ref)
+            signed_error_over_magnitude.append(delta / abs(ref))
             absolute_relative.append(abs(delta) / abs(ref))
     return {
         f"{prefix}_finite_samples": finite,
         f"{prefix}_zero_reference_samples": zero_reference,
         f"{prefix}_signed_mean_relative_error": sum(signed_relative) / len(signed_relative) if signed_relative else 0.0,
+        f"{prefix}_mean_signed_error_over_abs_reference": sum(signed_error_over_magnitude) / len(signed_error_over_magnitude) if signed_error_over_magnitude else 0.0,
         f"{prefix}_mean_absolute_relative_error": sum(absolute_relative) / len(absolute_relative) if absolute_relative else 0.0,
         f"{prefix}_max_absolute_relative_error": max(absolute_relative, default=0.0),
         f"{prefix}_mean_absolute_error": sum(absolute) / len(absolute) if absolute else 0.0,
