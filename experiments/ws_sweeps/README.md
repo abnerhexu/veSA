@@ -44,7 +44,7 @@ python3 -m unittest discover -v -s experiments/ws_sweeps -p 'test_*.py'
 ```
 
 The first command must show no experiment-branch modifications, and the tag
-must be `ws-sweeps-handoff-v1`.  Preserve any unrelated work by using a separate
+must be `ws-sweeps-handoff-v2`.  Preserve any unrelated work by using a separate
 Git worktree rather than switching a dirty checkout.
 
 ## A. Physical width and K reuse
