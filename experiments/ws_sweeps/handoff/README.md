@@ -9,12 +9,18 @@ regenerable build intermediates.
 This is a complete seed-20261021 `prepare` output:
 
 - `manifest.json` with hashes of the exact RTL, driver and arithmetic sources;
+- the seven-category area/power breakdown contract and eight storage details;
 - `hardware.csv` with all five physical widths;
 - `workloads.csv` with all 20 width/K points;
 - one checked E4M3/FP32 `vector.tsv` for every point.
 
 Copy its contents into a new output directory to begin at `rtl`. Every later
 stage validates its source hashes before running.
+
+The v2 handoff adds a pre-map disjoint operator partition, physical leaf-cell
+area/power ledgers, exact total-closure checks and auditable Yosys/ABC port
+repair. The complete method, categories, output inventory and large-node
+commands are in `../README.md`.
 
 ## `local_smoke/`
 

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,11 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "modeling/tensorcore"))
 from reference import dot  # noqa: E402
+from ws_breakdown import (  # noqa: E402
+    aggregate_power, partition_rtl, power_tcl, prepare_cell_ledger,
+    read_table, rules as breakdown_rules, write_table, yosys_quote,
+)
+from repair_abc import repair as repair_abc  # noqa: E402
 
 WIDTHS = (2, 4, 8, 16, 32)
 KS = (32, 64, 128, 256)
@@ -25,6 +31,8 @@ MAX_K = 256
 
 def source_paths():
     return [ROOT / "build.mill", HERE / "prepare_area.py",
+            HERE / "ws_breakdown.py", HERE / "breakdown-rules.json",
+            HERE / "repair_abc.py",
             HERE / "scala/WSReuseExperimentMesh.scala",
             HERE / "scala/GenerateWSReuse.scala",
             HERE / "test/WSReusePowerSpec.scala",
@@ -47,6 +55,12 @@ def table(path, rows):
 def first_csv_row(path):
     with Path(path).open() as stream:
         return next(csv.DictReader(stream))
+
+
+def require_close(actual, expected, label, relative=1e-4):
+    actual = float(actual); expected = float(expected)
+    if abs(actual - expected) > max(1e-11, abs(expected) * relative):
+        raise RuntimeError(f"{label} does not close: {actual} != {expected}")
 
 
 def finite_e4m3(rng):
@@ -101,6 +115,11 @@ def manifest(out, seed):
                    overlap_definition="cycles with next-segment exponent lane and current-segment sum lane both active",
                    throughput_definition="2*M*N*K / measured request-to-result cycles",
                    power_definition="OpenSTA pre-layout activity estimate over checked request-to-result VCD window",
+                   breakdown=dict(
+                       categories=breakdown_rules()["categories"],
+                       storage_details=breakdown_rules()["storage_details"],
+                       method="pre-map disjoint RTL operators preserved through mapping; physical leaf-cell closure",
+                       proportional_allocation=False),
                    source_sha256={str(path.relative_to(ROOT)): sha(path)
                                   for path in source_paths()},
                    hardware_points=len(hardware), workload_points=len(workloads), seed=seed)
@@ -141,6 +160,13 @@ def record_environment(out, section, values):
 def run(argv, env=None):
     print("RUN", " ".join(map(str, argv)), flush=True)
     subprocess.run(list(map(str, argv)), cwd=ROOT, env=env, check=True)
+
+
+def run_logged(argv, log, env=None):
+    print("RUN", " ".join(map(str, argv)), ">", log, flush=True)
+    with Path(log).open("w") as stream:
+        subprocess.run(list(map(str, argv)), cwd=ROOT, env=env, check=True,
+                       stdout=stream, stderr=subprocess.STDOUT)
 
 
 def scale_vcd(source, destination, factor=5000):
@@ -197,17 +223,32 @@ def synthesize(out, yosys, liberty, widths):
     for columns in widths:
         root = out / f"ws16x{columns}"
         rtl = root / "rtl/WSReuseExperimentMesh.sv"
+        partitioned = partition_rtl(rtl, root, yosys, run)
         script = root / "synth.ys"
         script.write_text("\n".join((
-            f"read_verilog -sv {rtl}",
+            f"read_json {yosys_quote(partitioned)}",
             "hierarchy -check -top WSReuseExperimentMesh",
-            "select *", "chformal -remove", "synth -top WSReuseExperimentMesh -noabc",
-            f"dfflibmap -liberty {liberty} -dont_use sky130_fd_sc_hd__lpflow_*",
-            f"abc -liberty {liberty} -dont_use sky130_fd_sc_hd__lpflow_*", "clean",
-            f"tee -o {root/'stat.json'} stat -json -liberty {liberty}",
-            f"write_verilog -noattr {root/'mapped.v'}")) + "\n")
-        run((yosys, "-Q", "-T", "-s", script))
-        for result in (root / "stat.json", root / "mapped.v"):
+            "opt -hier", "wreduce", "opt -hier", "opt_clean", "select *", "chformal -remove",
+            "synth -top WSReuseExperimentMesh -noabc -hieropt",
+            f"dfflibmap -liberty {yosys_quote(liberty)} -dont_use sky130_fd_sc_hd__lpflow_*",
+            f"abc -nocleanup -showtmp -liberty {yosys_quote(liberty)} -dont_use sky130_fd_sc_hd__lpflow_*", "clean",
+            f"tee -o {yosys_quote(root/'stat.json')} stat -json -liberty {yosys_quote(liberty)}",
+            f"write_json {yosys_quote(root/'raw-mapped.json')}")) + "\n")
+        synth_log = root / "synth.log"
+        run_logged((yosys, "-Q", "-T", "-s", script), synth_log)
+        repairs = repair_abc(root / "raw-mapped.json", synth_log,
+                             root / "mapped.json", yosys, ROOT)
+        (root / "pin-repair.json").write_text(json.dumps(repairs, indent=2) + "\n")
+        for temporary in {Path(record["abc_blif"]).parent for record in repairs}:
+            safe_parent = temporary.resolve().parent in (ROOT.resolve(), Path("/tmp").resolve())
+            safe_name = re.fullmatch(r"(?:_tmp_)?\.?yosys-abc-[A-Za-z0-9]+", temporary.name)
+            if temporary.is_dir() and safe_parent and safe_name:
+                shutil.rmtree(temporary)
+        prepare_cell_ledger(root, yosys, liberty, run)
+        for result in (root / "stat.json", root / "mapped.json", root / "mapped.v",
+                       root / "cells.csv", root / "area-breakdown.csv",
+                       root / "storage-area-breakdown.csv", root / "stage-ownership.json",
+                       root / "pin-repair.json"):
             if not result.exists() or result.stat().st_size == 0:
                 raise RuntimeError(f"synthesis did not produce {result}")
 
@@ -221,8 +262,10 @@ def power(out, openroad, liberty, tech_lef, cell_lef, widths, ks):
     })
     for columns in widths:
         root = out / f"ws16x{columns}"
-        if not (root / "mapped.v").exists():
-            raise FileNotFoundError(f"missing mapped netlist: {root/'mapped.v'}")
+        for required in (root / "mapped.v", root / "cells.csv"):
+            if not required.exists():
+                raise FileNotFoundError(f"missing synthesis output: {required}")
+        cell_ledger = read_table(root / "cells.csv")
         for k in ks:
             point = root / f"k{k}"
             for required in (point / "runtime.csv", point / "activity.vcd"):
@@ -242,23 +285,55 @@ def power(out, openroad, liberty, tech_lef, cell_lef, widths, ks):
                 "set_load 0.01 [all_outputs]",
                 f"read_vcd -scope TOP/WSReuseExperimentMesh -begin_time {begin} -end_time {end} {point/'activity.vcd'}",
                 f"report_activity_annotation > {point/'annotation.txt'}",
-                f"report_power -digits 9 -format json > {point/'power.json'}",
-                f"report_power -digits 9 > {point/'power.txt'}", "exit")) + "\n")
+                power_tcl(point, root / "cells.csv"))) + "\n")
             run((openroad, "-exit", script))
-            for result in (point / "annotation.txt", point / "power.json",
-                           point / "power.txt"):
+            for result in (point / "annotation.txt", point / "power.json", point / "power.txt",
+                           point / "cell-power.tsv"):
                 if not result.exists() or result.stat().st_size == 0:
                     raise RuntimeError(f"power analysis did not produce {result}")
+            annotation_text = (point / "annotation.txt").read_text()
+            unannotated = re.search(r"^unannotated\s+(\d+)\s*$", annotation_text, re.MULTILINE)
+            if unannotated is None or int(unannotated.group(1)) != 0:
+                raise RuntimeError(f"incomplete activity annotation: {point/'annotation.txt'}")
+            area_rows, storage_rows, combined = aggregate_power(
+                cell_ledger, point / "cell-power.tsv", point / "power.json")
+            write_table(point / "power-breakdown.csv", area_rows)
+            write_table(point / "storage-power-breakdown.csv", storage_rows)
+            write_table(point / "cells-power.csv", combined)
 
 
 def collect(out, widths, ks):
     areas = {}
+    area_breakdown = []
+    storage_area_breakdown = []
     for columns in widths:
-        stat = out / f"ws16x{columns}/stat.json"
+        root = out / f"ws16x{columns}"
+        stat = root / "stat.json"
         if not stat.exists():
             raise FileNotFoundError(f"missing synthesized area: {stat}")
         areas[columns] = json.loads(stat.read_text())["design"]["area"]
+        area_path = root / "area-breakdown.csv"
+        storage_path = root / "storage-area-breakdown.csv"
+        if not area_path.exists() or not storage_path.exists():
+            raise FileNotFoundError(f"missing area breakdown for {root}")
+        width_area = read_table(area_path)
+        width_storage = read_table(storage_path)
+        configuration = breakdown_rules()
+        if [row["category"] for row in width_area] != configuration["categories"]:
+            raise RuntimeError(f"area categories are incomplete or reordered: {area_path}")
+        if [row["storage_detail"] for row in width_storage] != configuration["storage_details"]:
+            raise RuntimeError(f"storage area categories are incomplete or reordered: {storage_path}")
+        require_close(sum(float(row["area_um2"]) for row in width_area),
+                      areas[columns], f"width {columns} area")
+        storage_area = next(float(row["area_um2"]) for row in width_area
+                            if row["category"] == "storage_interconnect")
+        require_close(sum(float(row["area_um2"]) for row in width_storage),
+                      storage_area, f"width {columns} storage area")
+        area_breakdown.extend(dict(columns=columns, **row) for row in width_area)
+        storage_area_breakdown.extend(dict(columns=columns, **row) for row in width_storage)
     rows = []
+    power_breakdown = []
+    storage_power_breakdown = []
     for columns in widths:
         for k in ks:
             point = out / f"ws16x{columns}/k{k}"
@@ -276,7 +351,34 @@ def collect(out, widths, ks):
                 raise FileNotFoundError(f"missing power/annotation output for {point}")
             if not annotation.read_text().strip():
                 raise RuntimeError(f"empty activity annotation: {annotation}")
-            total_power = json.loads(power_path.read_text())["Total"]["total"]
+            unannotated = re.search(r"^unannotated\s+(\d+)\s*$",
+                                    annotation.read_text(), re.MULTILINE)
+            if unannotated is None or int(unannotated.group(1)) != 0:
+                raise RuntimeError(f"incomplete activity annotation: {annotation}")
+            total_components = json.loads(power_path.read_text())["Total"]
+            total_power = total_components["total"]
+            power_path_breakdown = point / "power-breakdown.csv"
+            storage_power_path = point / "storage-power-breakdown.csv"
+            if not power_path_breakdown.exists() or not storage_power_path.exists():
+                raise FileNotFoundError(f"missing power breakdown for {point}")
+            point_power = read_table(power_path_breakdown)
+            point_storage = read_table(storage_power_path)
+            configuration = breakdown_rules()
+            if [item["category"] for item in point_power] != configuration["categories"]:
+                raise RuntimeError(f"power categories are incomplete or reordered: {power_path_breakdown}")
+            if [item["storage_detail"] for item in point_storage] != configuration["storage_details"]:
+                raise RuntimeError(f"storage power categories are incomplete or reordered: {storage_power_path}")
+            for column, key in (("internal_w", "internal"), ("switching_w", "switching"),
+                                ("leakage_w", "leakage"), ("total_w", "total")):
+                require_close(sum(float(item[column]) for item in point_power),
+                              total_components[key], f"width {columns} K={k} {key} power")
+            storage_total = next(float(item["total_w"]) for item in point_power
+                                 if item["category"] == "storage_interconnect")
+            require_close(sum(float(item["total_w"]) for item in point_storage),
+                          storage_total, f"width {columns} K={k} storage power")
+            power_breakdown.extend(dict(columns=columns, k=k, **item) for item in point_power)
+            storage_power_breakdown.extend(
+                dict(columns=columns, k=k, **item) for item in point_storage)
             energy = float(total_power) * cycles / 100_000_000
             throughput_ops_s = operations / cycles * 100_000_000
             area_mm2 = float(area) / 1e6
@@ -295,6 +397,10 @@ def collect(out, widths, ks):
                              activity_annotation="present",
                              note="pre-layout activity estimate; assumed 100 MHz; no STA"))
     table(out / "summary.csv", rows)
+    table(out / "area-breakdown.csv", area_breakdown)
+    table(out / "storage-area-breakdown.csv", storage_area_breakdown)
+    table(out / "power-breakdown.csv", power_breakdown)
+    table(out / "storage-power-breakdown.csv", storage_power_breakdown)
 
 
 def main():

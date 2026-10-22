@@ -23,9 +23,35 @@
   "overlap_definition": "cycles with next-segment exponent lane and current-segment sum lane both active",
   "throughput_definition": "2*M*N*K / measured request-to-result cycles",
   "power_definition": "OpenSTA pre-layout activity estimate over checked request-to-result VCD window",
+  "breakdown": {
+    "categories": [
+      "multiply_decode",
+      "exponent_align",
+      "fixed_sum",
+      "normalize_convert",
+      "storage_interconnect",
+      "control",
+      "shared_other"
+    ],
+    "storage_details": [
+      "stationary_weight_storage",
+      "activation_buffers",
+      "accumulator_state",
+      "feedback_pipeline",
+      "pipeline_interconnect",
+      "control_state",
+      "data_routing",
+      "unclassified_storage"
+    ],
+    "method": "pre-map disjoint RTL operators preserved through mapping; physical leaf-cell closure",
+    "proportional_allocation": false
+  },
   "source_sha256": {
     "build.mill": "ce0d3063916f2b80b605a09ffd186b5c83b3c02d9169a763c045656f9739906e",
-    "experiments/ws_sweeps/prepare_area.py": "f5137908547aca42ccbf9c5354a0a0d626310b939ed24223dbea9461be6e4e73",
+    "experiments/ws_sweeps/prepare_area.py": "571d47f1833fe09c40ab1e040cca79a94b5c37a5351f3b6813d38a055f59c298",
+    "experiments/ws_sweeps/ws_breakdown.py": "c37268b63920e664252db9423e30a663ab5106cd739786c860d71bde5f7a632b",
+    "experiments/ws_sweeps/breakdown-rules.json": "4e317cfde20a5a5ec41912f0dc4334a4f6c2a3b4e6298ad33781662c980cab48",
+    "experiments/ws_sweeps/repair_abc.py": "c48424b89476534c365d725f034f3f58d878a072596f2749ae30d747ff5e62e7",
     "experiments/ws_sweeps/scala/WSReuseExperimentMesh.scala": "bdb567d23cd8626c771d8a7f495c3e36bada429f83d86416c80f6ffdf96aff40",
     "experiments/ws_sweeps/scala/GenerateWSReuse.scala": "14e62c696ba627a2137180ca8e03bd9475b9c60c2a33648db1ea7f7ae04ca14d",
     "experiments/ws_sweeps/test/WSReusePowerSpec.scala": "0ed6aa2d2b8f2fb076ab0491611612236a00b65e9e457e990dd957f5966ed74e",

@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "categories": [
+    "multiply_decode",
+    "exponent_align",
+    "fixed_sum",
+    "normalize_convert",
+    "storage_interconnect",
+    "control",
+    "shared_other"
+  ],
+  "storage_details": [
+    "stationary_weight_storage",
+    "activation_buffers",
+    "accumulator_state",
+    "feedback_pipeline",
+    "pipeline_interconnect",
+    "control_state",
+    "data_routing",
+    "unclassified_storage"
+  ],
+  "policy": "Disjoint RTL operators are assigned before arithmetic lowering and ABC, then preserved as hierarchy. Every sequential cell belongs to storage_interconnect. Register-data routing belongs to storage_interconnect. Ambiguous or unresolved combinational logic belongs to shared_other. No area or power is allocated proportionally.",
+  "source_ranges": {
+    "TensorArithmetic.scala": [
+      [17, 70, "multiply_decode"],
+      [76, 86, "exponent_align"],
+      [149, 185, "normalize_convert"]
+    ],
+    "WSReuseExperimentMesh.scala": [
+      [58, 70, "control"],
+      [71, 77, "storage_interconnect"],
+      [78, 81, "control"],
+      [82, 90, "storage_interconnect"],
+      [91, 93, "multiply_decode"],
+      [94, 96, "exponent_align"],
+      [98, 101, "control"],
+      [102, 110, "storage_interconnect"],
+      [111, 113, "multiply_decode"],
+      [114, 114, "fixed_sum"],
+      [115, 115, "exponent_align"],
+      [116, 121, "normalize_convert"],
+      [131, 177, "control"],
+      [178, 185, "storage_interconnect"],
+      [186, 218, "control"],
+      [219, 219, "storage_interconnect"],
+      [220, 337, "control"],
+      [338, 338, "multiply_decode"],
+      [339, 343, "exponent_align"],
+      [344, 346, "normalize_convert"],
+      [347, 381, "control"],
+      [382, 391, "normalize_convert"],
+      [393, 437, "control"]
+    ]
+  }
+}

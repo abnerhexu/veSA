@@ -6,7 +6,7 @@ No FP32/TF32/FP64 A/B path is introduced.
 
 ## Handoff contract
 
-Use the `experiments/ws-sweeps` branch, tagged `ws-sweeps-handoff-v1`, and run
+Use the `experiments/ws-sweeps` branch, tagged `ws-sweeps-handoff-v2`, and run
 commands from the veSA submodule root.  Do not run this flow from another branch:
 the prepared-input manifest hashes `build.mill`, the experiment RTL/test/driver
 and `TensorArithmetic.scala`, and every stage after `prepare` rejects a source
@@ -116,24 +116,88 @@ final `collect` without selectors so it requires all five area results and all
 `prepare` writes source hashes, `hardware.csv`, `workloads.csv` and one checked
 input/output vector per workload.  `simulate` verifies every output, records the
 request-to-result cycle window, and writes both the raw 2 ps Chiseltest VCD and a
-time-scaled 10 ns activity VCD.  `synth` maps each width once.  `power` evaluates
-each K activity window on that width's mapped netlist.  `collect` produces
+time-scaled 10 ns activity VCD.  `synth` assigns every generic RTL operator to a
+disjoint stage before lowering and ABC, preserves those stage modules, maps each
+width once, and checks the sum of physical leaf-cell areas against Yosys `stat`.
+`power` evaluates each K activity window on the same mapped netlist, records
+every physical leaf-cell's OpenSTA power, and checks the leaf sums against
+OpenSTA `Total`.  `collect` produces
 absolute area, power, energy, operations/cycle, TOPS and both normalized values
 per mm².  Collection fails instead of silently omitting a point if any selected
-area, checked runtime, power result or activity annotation is missing.
+area, checked runtime, power result, breakdown or activity annotation is missing.
+
+### Area and power breakdown
+
+The primary breakdown uses seven mutually exclusive categories.  The same
+physical leaf instance belongs to the same category in area and all four K
+power runs for a width:
+
+- `multiply_decode`: E4M3 decode, significand multiplication, product sign,
+  classification and product exponent generation.
+- `exponent_align`: product/C maximum selection, exponent difference, variable
+  shift and magnitude-first RZ truncation.
+- `fixed_sum`: the fixed-point partial-sum adder logic.
+- `normalize_convert`: leading-zero/priority logic, normalization, FP32 packing
+  and NaN/Inf result selection.
+- `storage_interconnect`: every sequential cell plus register-data selection and
+  array/feedback routing.
+- `control`: FSM, counters, valid/ready, bank/chunk selection and tags.
+- `shared_other`: combinational gates with ambiguous or unresolved ownership.
+
+Sequential cells are always charged to `storage_interconnect`, even when they
+pipeline an arithmetic stage.  Shared logic is reported explicitly and is never
+distributed in proportion to another category.  Because the stage hierarchy is
+established before technology mapping, the reported total is the constrained,
+category-preserving implementation itself.  Use this total for all width/K
+comparisons from this handoff; do not combine it with a separately flattened
+synthesis result.
+
+`storage_interconnect` also has an auxiliary, disjoint sub-breakdown:
+
+- `stationary_weight_storage`: four stationary B bytes per PE.
+- `activation_buffers`: the two 32-term left-edge A buffers.
+- `accumulator_state`: C/D, product maxima, replay maxima, fixed sums and
+  NaN/Inf state.
+- `feedback_pipeline`: the exponent return path from column bottom to top.
+- `pipeline_interconnect`: PE exponent/sum wave pipeline registers.
+- `control_state`: registered FSM, sequence, cycle and result state.
+- `data_routing`: combinational register reads, muxes and cross-stage routing.
+- `unclassified_storage`: physical storage that cannot be assigned to one of
+  the named storage roles; it must remain visible rather than being reallocated.
+
+The final root files are:
+
+- `area-breakdown.csv`: 35 rows, seven categories for each of five widths.
+- `storage-area-breakdown.csv`: 40 rows, eight storage details per width.
+- `power-breakdown.csv`: 140 rows, seven categories for every width/K point.
+- `storage-power-breakdown.csv`: 160 rows, eight storage details per width/K.
+- `summary.csv`: 20 total PPA/throughput rows.
+
+Area rows contain physical cell count, µm² and percentage.  Power rows contain
+internal, switching, leakage and total watts plus percentage.  Per-width
+`cells.csv` is the area ownership ledger; each workload retains
+`cell-power.tsv`, `cells-power.csv`, both point breakdowns and total
+`power.json`.  `breakdown-rules.json`, `operator-ownership.csv` and
+`stage-ownership.json` preserve the classification policy and audit trail.
+The synthesis stage also retains `raw-mapped.json`, repaired `mapped.json`,
+`pin-repair.json` and one `*-abc-reference.json` per mapped stage.  These files
+make the installed Yosys/ABC Liberty-port repair auditable; the repair matches
+exact ABC cell ordinals and net correspondences and never guesses pin order.
 
 `synth` records the Yosys executable/version/hash and Liberty hash in
 `environment.json`; `power` adds the OpenROAD executable/version/hash and all
 three PDK-file hashes.  Keep this file with `summary.csv`.  The expected final
-inventory is five `stat.json`/`mapped.v` pairs, 20 `runtime.csv` files, 20 scaled
-activity VCDs, 20 nonempty `annotation.txt`/`power.json` pairs, and a 20-row
-`summary.csv`.  Every runtime row must say `result_check=passed`; K>32 rows must
-have `overlap_cycles > 0`.
+inventory is five `stat.json`/`mapped.json`/`mapped.v`/`cells.csv` sets, 20
+`runtime.csv` files, 20 scaled activity VCDs, 20 nonempty
+`annotation.txt`/`power.json`/`cell-power.tsv` sets, the four aggregate breakdown
+CSVs above, and a 20-row `summary.csv`.  Every runtime row must say
+`result_check=passed`; K>32 rows must have `overlap_cycles > 0`.
 
 The power values are pre-layout OpenSTA estimates at an assumed 100 MHz with
 0.1 ns input transition and 0.01 pF output load.  They are not Fmax, STA closure
 or post-layout power results.  Inspect `annotation.txt` before accepting a point;
 an unannotated or failed output check must not enter the final CSV.
+The driver enforces the explicit `unannotated 0` result before accepting power.
 
 The checked-in `handoff/local_smoke/` directory preserves the completed
 16x2/K=64 runtime and compressed 16x2 RTL export.  It is validation evidence,
